@@ -1,26 +1,157 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #F0F4FF;
+  --foreground: #1a2a5e;
+  --primary: #1B3A8C;
+  --primary-light: #2D6BE4;
+  --primary-dark: #0f2260;
+  --accent-green: #16A34A;
+  --accent-green-light: #22C55E;
+  --accent-gold: #D4AF37;
+  --surface: #ffffff;
+  --surface-secondary: #F8FAFC;
+  --border: #E2E8F0;
+  --text-muted: #64748B;
+  --danger: #DC2626;
+  --warning: #D97706;
+  --success: #16A34A;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--primary);
+  --color-primary-light: var(--primary-light);
+  --color-primary-dark: var(--primary-dark);
+  --color-accent-green: var(--accent-green);
+  --color-accent-gold: var(--accent-gold);
+  --color-surface: var(--surface);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-border: var(--border);
+  --color-text-muted: var(--text-muted);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Dark mode overrides */
+.dark {
+  --background: #080f2a;
+  --foreground: #e2e8f0;
+  --surface: #0f1d42;
+  --surface-secondary: #0a1530;
+  --border: #1e3570;
+  --text-muted: #94a3b8;
+  --primary: #4f8ef7;
+  --primary-light: #6ba3f9;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #F1F5F9; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(27, 58, 140, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(27, 58, 140, 0); }
+}
+
+.animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
+.animate-slide-in { animation: slide-in 0.3s ease-out forwards; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* LF Brand gradient */
+.lf-gradient {
+  background: linear-gradient(135deg, #1B3A8C 0%, #2D6BE4 50%, #1B3A8C 100%);
+}
+
+.lf-gradient-subtle {
+  background: linear-gradient(135deg, #EEF2FF 0%, #DBEAFE 100%);
+}
+
+/* Glass morphism */
+.glass {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+/* Cards */
+.card-hover {
+  transition: all 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(27, 58, 140, 0.12);
+}
+
+/* Badge */
+.badge-conforme { background: #DCFCE7; color: #15803D; }
+.badge-parcial { background: #FEF3C7; color: #92400E; }
+.badge-nao-conforme { background: #FEE2E2; color: #991B1B; }
+
+/* Prose for reports */
+.prose-report h3 { font-size: 1rem; font-weight: 600; color: var(--primary); margin: 1rem 0 0.5rem; }
+.prose-report ul { list-style: disc; padding-left: 1.25rem; }
+.prose-report li { margin: 0.25rem 0; font-size: 0.875rem; }
+
+/* File drop zone */
+.drop-zone {
+  border: 2px dashed var(--border);
+  transition: all 0.2s;
+}
+.drop-zone:hover, .drop-zone.active {
+  border-color: var(--primary-light);
+  background: rgba(45, 107, 228, 0.04);
+}
+
+/* Dark mode — native form elements */
+.dark input:not([type="color"]):not([type="checkbox"]):not([type="radio"]),
+.dark textarea,
+.dark select,
+.dark option {
+  background-color: #0a1530;
+  color: #e2e8f0;
+  border-color: #1e3570;
+  color-scheme: dark;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+/* Dark scrollbar */
+.dark ::-webkit-scrollbar-track { background: #0a1530; }
+.dark ::-webkit-scrollbar-thumb { background: #1e3570; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #253d7a; }

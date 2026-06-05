@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LF Auditoria — Sistema de Análise Documental com IA
 
-## Getting Started
+Plataforma web interna para análise automatizada de documentos de clientes utilizando Inteligência Artificial (Claude da Anthropic), com foco em **OEA** (Operador Econômico Autorizado) e **LGPD**.
 
-First, run the development server:
+---
+
+## Pré-requisitos
+
+- Node.js 20+
+- Conta no [Supabase](https://supabase.com) (gratuita)
+- Chave de API da [Anthropic](https://console.anthropic.com)
+
+---
+
+## Configuração
+
+### 1. Banco de dados (Supabase)
+
+1. Crie um projeto no [supabase.com](https://supabase.com)
+2. Acesse **SQL Editor** e execute o arquivo `supabase/schema.sql`
+3. Vá em **Storage** e crie o bucket `reference-documents` (privado)
+4. Em **Settings > Authentication**, configure o site URL para `http://localhost:3000`
+
+### 2. Variáveis de ambiente
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Edite `.env.local` com suas credenciais do Supabase e Anthropic.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. Instalar e iniciar
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+Acesse: **http://localhost:3000**
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Primeiro uso
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Crie sua conta em `/register`
+2. No Supabase, defina `role = 'admin'` na tabela `profiles` para seu usuário
+3. Acesse `/admin` para gerenciar o sistema
+4. Em **Documentos de Referência**, faça upload dos materiais-base (normas, legislação)
+5. Crie sua primeira análise em **Nova Análise**
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Funcionalidades
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Funcionalidade | Status |
+|---|---|
+| Cadastro/login com Supabase Auth | OK |
+| Controle de acesso (admin/colaborador) | OK |
+| Painel com estatísticas de conformidade | OK |
+| Seleção de tema (OEA / LGPD) e subtema | OK |
+| Upload de documento (PDF, DOCX, TXT) | OK |
+| Análise automática com IA (Claude Sonnet) | OK |
+| Relatório técnico detalhado | OK |
+| Score e classificação de conformidade | OK |
+| Pontos conformes / parciais / não conformes | OK |
+| Sugestões de melhoria priorizadas | OK |
+| Histórico com filtros por tema e status | OK |
+| Chatbot / assistente por análise | OK |
+| Gestão de documentos de referência | OK |
+| Painel administrativo | OK |
+
+---
+
+## Tecnologias
+
+- **Framework**: Next.js 16 (App Router) + TypeScript
+- **Estilo**: Tailwind CSS v4
+- **Banco**: Supabase (PostgreSQL + Auth + Storage)
+- **IA**: Anthropic Claude Sonnet 4.6
+- **Parsing**: pdf-parse, mammoth (DOCX)
+- **UI**: Radix UI + Lucide React
