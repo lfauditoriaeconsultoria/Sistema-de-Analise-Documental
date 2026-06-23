@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const file = formData.get('file') as File | null
     const name = formData.get('name') as string
+    const version = (formData.get('version') as string | null) || null
     const description = formData.get('description') as string | null
     const themeId = formData.get('themeId') as string
     const subtopicId = formData.get('subtopicId') as string | null
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
         oea_criteria_id: oeaCriteriaId || null,
         oea_item_id: oeaItemId || null,
         name,
+        version: version || null,
         description: description || null,
         file_path: uploadError ? null : filePath,
         file_type: file.name.split('.').pop()?.toLowerCase(),

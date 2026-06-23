@@ -55,6 +55,7 @@ export interface ReferenceDocument {
   oea_criteria_id: string | null
   oea_item_id: string | null
   name: string
+  version: string | null
   description: string | null
   file_path: string | null
   file_type: string | null
@@ -67,6 +68,28 @@ export interface ReferenceDocument {
   subtopic?: Subtopic
   oea_criteria?: OeaCriteria
   oea_item?: OeaItem
+}
+
+export type LinkFetchStatus = 'pending' | 'success' | 'failed'
+
+export interface ReferenceLink {
+  id: string
+  name: string
+  url: string
+  description: string | null
+  theme_id: string | null
+  subtopic_id: string | null
+  oea_criteria_id: string | null
+  oea_item_id: string | null
+  fetch_status: LinkFetchStatus
+  last_checked_at: string | null
+  fetch_error: string | null
+  created_at: string
+  updated_at: string
+  theme?: { name: string } | null
+  subtopic?: { name: string } | null
+  oea_criteria?: { number: number; name: string } | null
+  oea_item?: { item_number: string } | null
 }
 
 export type AnalysisStatus = 'pending' | 'processing' | 'completed' | 'failed'
@@ -165,4 +188,28 @@ export interface DashboardStats {
   completed_analyses: number
   pending_analyses: number
   conformity_rate: number
+}
+
+export interface AiChatConversation {
+  id: string
+  user_id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AiChatAttachmentMeta {
+  name: string
+  type: 'text' | 'image'
+  mediaType?: string
+  hasContent: boolean
+}
+
+export interface AiChatMessage {
+  id: string
+  conversation_id: string
+  role: 'user' | 'assistant'
+  content: string
+  attachments: AiChatAttachmentMeta[]
+  created_at: string
 }

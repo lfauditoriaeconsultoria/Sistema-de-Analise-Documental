@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { ReferenceDocsClient } from '@/components/reference-docs/reference-docs-client'
+import type { ReferenceLink } from '@/types'
 
 export default async function ReferenceDocsPage() {
   const supabase = await createClient()
@@ -15,11 +16,12 @@ export default async function ReferenceDocsPage() {
 
   const isAdmin = profile?.role === 'admin'
 
-  const [{ data: themes }, { data: subtopics }, { data: docs }, { data: prompts }] = await Promise.all([
+  const [{ data: themes }, { data: subtopics }, { data: docs }, { data: prompts }, { data: links }] = await Promise.all([
     admin.from('themes').select('*').eq('is_active', true).order('name'),
     admin.from('subtopics').select('*').eq('is_active', true).order('name'),
     admin.from('reference_documents').select('*, theme:themes(name), subtopic:subtopics(name)').order('created_at', { ascending: false }),
     admin.from('reference_prompts').select('*, theme:themes(name), subtopic:subtopics(name), oea_criteria:oea_criteria(number, name), oea_item:oea_items(item_number)').eq('is_active', true).order('created_at', { ascending: true }),
+    admin.from('reference_links').select('id, name, url, description, theme_id, subtopic_id, oea_criteria_id, oea_item_id, fetch_status, last_checked_at, fetch_error, created_at, updated_at, theme:themes(name), subtopic:subtopics(name), oea_criteria:oea_criteria(number, name), oea_item:oea_items(item_number)').order('created_at', { ascending: false }),
   ])
 
   return (
@@ -28,6 +30,7 @@ export default async function ReferenceDocsPage() {
       subtopics={subtopics ?? []}
       docs={docs ?? []}
       prompts={prompts ?? []}
+      links={(links ?? []) as unknown as ReferenceLink[]}
       isAdmin={isAdmin}
     />
   )

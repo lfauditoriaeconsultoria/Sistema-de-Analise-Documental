@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation'
 import { useDropzone } from 'react-dropzone'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { Theme, Subtopic, OeaCriteria, OeaItem } from '@/types'
 import {
   Shield, Lock, FileText, ChevronRight, ChevronLeft,
   X, CheckCircle, Loader2, AlertCircle, Upload, BookOpen,
-  MessageSquare, Plus, Trash2, Pencil, Check, File
+  MessageSquare, Plus, Trash2, Pencil, Check, File, Globe, DatabaseZap,
+  Link as LinkIcon, ExternalLink
 } from 'lucide-react'
 import { cn, formatFileSize } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -47,6 +49,15 @@ interface SessionRefDoc {
   active: boolean
 }
 
+interface SessionLink {
+  localId: string
+  name: string
+  url: string
+  content: string | null
+  active: boolean
+  isRegistered: boolean
+}
+
 const THEME_ICONS: Record<string, React.ReactNode> = {
   OEA: <Shield size={22} />,
   LGPD: <Lock size={22} />,
@@ -76,7 +87,8 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
   const [selectedOeaItem, setSelectedOeaItem] = useState<OeaItem | null>(null)
 
   // Step 3
-  const [kbTab, setKbTab] = useState<'docs' | 'prompts'>('docs')
+  const [kbTab, setKbTab] = useState<'docs' | 'prompts' | 'links'>('docs')
+  const [useExternalKnowledge, setUseExternalKnowledge] = useState(true)
   const [loadingKB, setLoadingKB] = useState(false)
   const [refDocs, setRefDocs] = useState<RefDocItem[]>([])
   const [sessionDocs, setSessionDocs] = useState<SessionRefDoc[]>([])
@@ -85,6 +97,11 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
   const [sessionPrompts, setSessionPrompts] = useState<SessionPrompt[]>([])
   const [showAddPrompt, setShowAddPrompt] = useState(false)
   const [newPromptContent, setNewPromptContent] = useState('')
+  const [sessionLinks, setSessionLinks] = useState<SessionLink[]>([])
+  const [showAddLink, setShowAddLink] = useState(false)
+  const [newLinkUrl, setNewLinkUrl] = useState('')
+  const [newLinkName, setNewLinkName] = useState('')
+  const [showKbConfirm, setShowKbConfirm] = useState(false)
 
   // Step 4
   const [clientName, setClientName] = useState('')
@@ -130,6 +147,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
     setLoadingKB(true)
     setRefDocs([])
     setSessionPrompts([])
+    setSessionLinks([])
     // sessionDocs are preserved — user additions survive step navigation
     try {
       const params = new URLSearchParams({ themeId: selectedTheme!.id })
@@ -141,16 +159,18 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       const { data: { session } } = await supabase.auth.getSession()
       const headers: HeadersInit = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
 
-      const [docsRes, promptsRes] = await Promise.all([
+      const [docsRes, promptsRes, linksRes] = await Promise.all([
         fetch(`/api/documents?${params}`, { headers }),
         fetch(`/api/prompts?${params}`, { headers }),
+        fetch(`/api/links?${params}`, { headers }),
       ])
 
       const docsJson = await docsRes.json()
       const promptsJson = await promptsRes.json()
+      const linksJson = linksRes.ok ? await linksRes.json() : { links: [] }
 
       setRefDocs(
-        (docsJson.documents ?? []).map((d: RefDocItem) => ({ ...d, active: true }))
+        (docsJson.documents ?? []).map((d: RefDocItem) => ({ ...d, active: false }))
       )
       setSessionPrompts(
         (promptsJson.prompts ?? []).map((p: { id: string; title: string; content: string }) => ({
@@ -158,8 +178,18 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
           dbId: p.id,
           title: p.title,
           content: p.content,
-          active: true,
+          active: false,
           editing: false,
+        }))
+      )
+      setSessionLinks(
+        (linksJson.links ?? []).map((l: { id: string; name: string; url: string }) => ({
+          localId: l.id,
+          name: l.name,
+          url: l.url,
+          content: null,
+          active: false,
+          isRegistered: true,
         }))
       )
     } catch {
@@ -210,6 +240,8 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       if (selectedOeaCriteria) formData.append('selectedOeaCriteriaId', selectedOeaCriteria.id)
       if (selectedOeaItem) formData.append('selectedOeaItemId', selectedOeaItem.id)
 
+      formData.append('useExternalKnowledge', String(useExternalKnowledge))
+
       const activeDocIds = refDocs.filter(d => d.active).map(d => d.id)
       formData.append('activeRefDocIds', JSON.stringify(activeDocIds))
 
@@ -222,6 +254,11 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
         .filter(p => p.active)
         .map(p => ({ title: p.title, content: p.content }))
       formData.append('customPrompts', JSON.stringify(activePrompts))
+
+      const activeLinks = sessionLinks
+        .filter(l => l.active)
+        .map(l => ({ name: l.name, url: l.url, content: l.content }))
+      formData.append('sessionLinks', JSON.stringify(activeLinks))
 
       const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
@@ -303,8 +340,26 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
     setSessionPrompts(prev => prev.filter(p => p.localId !== localId))
   }
 
+  function addOnTheFlyLink() {
+    const url = newLinkUrl.trim()
+    const name = newLinkName.trim() || url
+    if (!url) return
+    setSessionLinks(prev => [
+      ...prev,
+      { localId: crypto.randomUUID(), name, url, content: null, active: true, isRegistered: false },
+    ])
+    setNewLinkUrl('')
+    setNewLinkName('')
+    setShowAddLink(false)
+  }
+
+  function removeSessionLink(localId: string) {
+    setSessionLinks(prev => prev.filter(l => l.localId !== localId))
+  }
+
   const activeDocsCount = refDocs.filter(d => d.active).length + sessionDocs.filter(d => d.active).length
   const activePromptsCount = sessionPrompts.filter(p => p.active).length
+  const activeLinksCount = sessionLinks.filter(l => l.active).length
 
   return (
     <div className="max-w-3xl mx-auto animate-fade-in">
@@ -658,6 +713,26 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                 {activePromptsCount}
               </span>
             </button>
+            <button
+              onClick={() => setKbTab('links')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all',
+                kbTab === 'links'
+                  ? 'bg-white dark:bg-[#0f1d42] text-[#1a2a5e] dark:text-[#e2e8f0] shadow-sm'
+                  : 'text-[#64748B] dark:text-[#94a3b8] hover:text-[#1a2a5e] dark:hover:text-[#e2e8f0]'
+              )}
+            >
+              <LinkIcon size={15} />
+              Links
+              <span className={cn(
+                'text-xs px-1.5 py-0.5 rounded-full font-bold',
+                kbTab === 'links'
+                  ? 'bg-[#EEF2FF] dark:bg-[#1e3570] text-[#1B3A8C] dark:text-blue-300'
+                  : 'bg-[#E2E8F0] dark:bg-[#1e3570]/60 text-[#64748B] dark:text-[#94a3b8]'
+              )}>
+                {activeLinksCount}
+              </span>
+            </button>
           </div>
 
           {/* Docs tab */}
@@ -874,16 +949,237 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             </div>
           )}
 
+          {/* Links tab */}
+          {kbTab === 'links' && (
+            <div className="space-y-2 min-h-32">
+              {loadingKB ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 size={24} className="animate-spin text-[#1B3A8C]" />
+                </div>
+              ) : (
+                <>
+                  {sessionLinks.length === 0 && !showAddLink && (
+                    <div className="text-center py-8 text-[#94A3B8]">
+                      <LinkIcon size={28} className="mx-auto mb-2 opacity-40" />
+                      <p className="text-sm">Nenhum link externo cadastrado</p>
+                      <p className="text-xs mt-1">Adicione um link abaixo para a IA acessar durante a análise</p>
+                    </div>
+                  )}
+
+                  {/* Registered links — toggle only */}
+                  {sessionLinks.filter(l => l.isRegistered).map(link => (
+                    <label
+                      key={link.localId}
+                      className={cn(
+                        'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all',
+                        link.active
+                          ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
+                          : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#FAFAFA] dark:bg-[#080f2a] opacity-60'
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={link.active}
+                        onChange={e => setSessionLinks(prev => prev.map(l => l.localId === link.localId ? { ...l, active: e.target.checked } : l))}
+                        className="w-4 h-4 accent-[#1B3A8C] flex-shrink-0"
+                      />
+                      <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#0f1d42] flex items-center justify-center flex-shrink-0 border border-[#E2E8F0] dark:border-[#1e3570]">
+                        <Globe size={14} className="text-[#1B3A8C] dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] truncate">{link.name}</p>
+                        <p className="text-xs text-[#64748B] dark:text-[#94a3b8] truncate">{link.url}</p>
+                      </div>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="p-1.5 rounded-lg text-[#64748B] dark:text-[#94a3b8] hover:text-[#1B3A8C] dark:hover:text-blue-400 transition-colors flex-shrink-0"
+                      >
+                        <ExternalLink size={13} />
+                      </a>
+                    </label>
+                  ))}
+
+                  {/* On-the-fly links — toggle + delete */}
+                  {sessionLinks.filter(l => !l.isRegistered).map(link => (
+                    <div
+                      key={link.localId}
+                      className={cn(
+                        'flex items-center gap-3 p-3 rounded-xl border-2 transition-all',
+                        link.active
+                          ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
+                          : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#FAFAFA] dark:bg-[#080f2a] opacity-60'
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={link.active}
+                        onChange={e => setSessionLinks(prev => prev.map(l => l.localId === link.localId ? { ...l, active: e.target.checked } : l))}
+                        className="w-4 h-4 accent-[#1B3A8C] flex-shrink-0"
+                      />
+                      <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#0f1d42] flex items-center justify-center flex-shrink-0 border border-[#E2E8F0] dark:border-[#1e3570]">
+                        <LinkIcon size={14} className="text-[#1B3A8C] dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] truncate">{link.name}</p>
+                        <p className="text-xs text-[#64748B] dark:text-[#94a3b8] truncate">{link.url}</p>
+                      </div>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded-lg text-[#64748B] dark:text-[#94a3b8] hover:text-[#1B3A8C] dark:hover:text-blue-400 transition-colors flex-shrink-0"
+                      >
+                        <ExternalLink size={13} />
+                      </a>
+                      <button
+                        onClick={() => removeSessionLink(link.localId)}
+                        className="p-1.5 rounded-lg text-[#64748B] dark:text-[#94a3b8] hover:text-[#DC2626] hover:bg-[#FEE2E2] dark:hover:bg-red-900/30 transition-colors flex-shrink-0"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add link form or button */}
+                  {showAddLink ? (
+                    <div className="rounded-xl border-2 border-dashed border-[#1B3A8C] dark:border-blue-500/50 p-4 space-y-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">URL</label>
+                        <input
+                          type="url"
+                          // eslint-disable-next-line jsx-a11y/no-autofocus
+                          autoFocus
+                          placeholder="https://exemplo.com/norma"
+                          value={newLinkUrl}
+                          onChange={e => setNewLinkUrl(e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">
+                          Nome <span className="text-[#94A3B8] font-normal">(opcional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Nome do link"
+                          value={newLinkName}
+                          onChange={e => setNewLinkName(e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={addOnTheFlyLink} disabled={!newLinkUrl.trim()}>
+                          <Check size={14} /> Adicionar
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setShowAddLink(false); setNewLinkUrl(''); setNewLinkName('') }}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button variant="secondary" size="sm" onClick={() => setShowAddLink(true)} className="w-full">
+                      <Plus size={14} /> Adicionar link para esta sessão
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Fonte de conhecimento da IA */}
+          <div className="mt-5 pt-5 border-t border-[#E2E8F0] dark:border-[#1e3570]">
+            <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide mb-3">Fonte de Conhecimento da IA</p>
+            <button
+              type="button"
+              onClick={() => setUseExternalKnowledge(prev => !prev)}
+              className={cn(
+                'w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all',
+                useExternalKnowledge
+                  ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
+                  : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#F8FAFC] dark:bg-[#0a1530]'
+              )}
+            >
+              <div className={cn(
+                'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors',
+                useExternalKnowledge ? 'bg-[#1B3A8C] text-white' : 'bg-[#E2E8F0] dark:bg-[#1e3570] text-[#94A3B8] dark:text-[#64748b]'
+              )}>
+                {useExternalKnowledge ? <Globe size={18} /> : <DatabaseZap size={18} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0]">
+                  {useExternalKnowledge ? 'Conhecimento externo habilitado' : 'Somente base de conhecimento local'}
+                </p>
+                <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-0.5 leading-relaxed">
+                  {useExternalKnowledge
+                    ? 'A IA utilizará todos os materiais da base de conhecimento e poderá consultar o conhecimento externo armazenado no Claude AI.'
+                    : 'A IA se baseará exclusivamente nos documentos, prompts e links cadastrados na base de conhecimento, sem consultar fontes externas.'}
+                </p>
+              </div>
+              <div className={cn(
+                'relative w-11 h-6 rounded-full transition-colors flex-shrink-0',
+                useExternalKnowledge ? 'bg-[#1B3A8C]' : 'bg-[#CBD5E1] dark:bg-[#475569]'
+              )}>
+                <span className={cn(
+                  'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform',
+                  useExternalKnowledge ? 'translate-x-5' : 'translate-x-0.5'
+                )} />
+              </div>
+            </button>
+          </div>
+
           <div className="flex justify-between mt-6">
             <Button variant="secondary" onClick={() => setStep(2)}>
               <ChevronLeft size={16} /> Voltar
             </Button>
-            <Button onClick={() => setStep(4)}>
+            <Button onClick={() => {
+              const hasSelection = activeDocsCount > 0 || activePromptsCount > 0 || activeLinksCount > 0
+              if (!hasSelection) {
+                setShowKbConfirm(true)
+              } else {
+                setStep(4)
+              }
+            }}>
               Próximo <ChevronRight size={16} />
             </Button>
           </div>
         </Card>
       )}
+
+      {/* ── Confirmation: proceed without KB ── */}
+      <Modal
+        open={showKbConfirm}
+        onOpenChange={setShowKbConfirm}
+        title="Continuar sem Base de Conhecimento?"
+        size="sm"
+      >
+        <div className="space-y-5">
+          <p className="text-sm text-[#64748B] dark:text-[#94a3b8] leading-relaxed">
+            Deseja prosseguir com a análise sem utilizar nenhuma fonte de conhecimento cadastrada na Base de Conhecimento?
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setShowKbConfirm(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => {
+              setShowKbConfirm(false)
+              if (useExternalKnowledge) {
+                setStep(4)
+              } else {
+                toast({
+                  type: 'error',
+                  title: 'Não é possível prosseguir',
+                  description: 'Nenhuma fonte de conhecimento foi selecionada e a busca externa de informações está desabilitada. Selecione ao menos uma fonte da Base de Conhecimento ou habilite a busca externa para continuar.',
+                })
+              }
+            }}>
+              Sim, prosseguir
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Step 4: Document Upload ── */}
       {step === 4 && (

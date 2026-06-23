@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { analyzeDocument, DocumentInput } from '@/lib/anthropic/analysis'
+import { analyzeDocument, DocumentInput, AnalysisReferenceLink } from '@/lib/anthropic/analysis'
 import { extractTextFromFile } from '@/lib/document-parser'
+import { fetchUrlContent } from '@/lib/fetch-url-content'
 import { Theme, Subtopic, ReferenceDocument, OeaCriteria, OeaItem } from '@/types'
 
 function buildSupabase(token?: string) {
@@ -51,8 +52,12 @@ export async function POST(req: NextRequest) {
     const customPrompts: Array<{ title: string; content: string }> = customPromptsRaw ? JSON.parse(customPromptsRaw) : []
     const sessionDocsRaw = formData.get('sessionDocs') as string | null
     const sessionDocs: Array<{ name: string; file_type: string | null; content: string }> = sessionDocsRaw ? JSON.parse(sessionDocsRaw) : []
+    const sessionLinksRaw = formData.get('sessionLinks') as string | null
+    const sessionLinksInput: Array<{ name: string; url: string; content: string | null }> = sessionLinksRaw ? JSON.parse(sessionLinksRaw) : []
     const selectedOeaCriteriaId = formData.get('selectedOeaCriteriaId') as string | null
     const selectedOeaItemId = formData.get('selectedOeaItemId') as string | null
+    const useExternalKnowledgeRaw = formData.get('useExternalKnowledge') as string | null
+    const restrictToContext = useExternalKnowledgeRaw === 'false'
 
     // Admin client para dados de configuração (themes, subtopics, reference_documents)
     const [{ data: theme }, { data: subtopic }, { data: oeaCriteriaData }, { data: oeaItemData }] = await Promise.all([
@@ -164,6 +169,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Resolve link content: try DB first for registered links, then fetch from URL
+    let referenceLinks: AnalysisReferenceLink[] = []
+    if (sessionLinksInput.length > 0) {
+      const linksNeedingContent = sessionLinksInput.filter(l => !l.content)
+      const urlsNeedingContent = linksNeedingContent.map(l => l.url)
+      const dbContentMap = new Map<string, string>()
+
+      if (urlsNeedingContent.length > 0) {
+        const { data: dbLinks } = await admin
+          .from('reference_links')
+          .select('url, content')
+          .in('url', urlsNeedingContent)
+          .not('content', 'is', null)
+        for (const row of dbLinks ?? []) {
+          if (row.url && row.content) dbContentMap.set(row.url, row.content as string)
+        }
+      }
+
+      referenceLinks = (
+        await Promise.all(
+          sessionLinksInput.map(async (l) => {
+            const content = l.content ?? dbContentMap.get(l.url) ?? await fetchUrlContent(l.url).catch(() => null)
+            if (!content) return null
+            return { name: l.name, url: l.url, content }
+          })
+        )
+      ).filter((l): l is AnalysisReferenceLink => l !== null)
+    }
+
     const result = await analyzeDocument(
       documentInput,
       file.name,
@@ -175,6 +209,8 @@ export async function POST(req: NextRequest) {
       customSubtopicName ?? undefined,
       oeaCriteriaData as OeaCriteria | null,
       oeaItemData as OeaItem | null,
+      restrictToContext,
+      referenceLinks,
     )
 
     const reportPayload: Record<string, unknown> = {

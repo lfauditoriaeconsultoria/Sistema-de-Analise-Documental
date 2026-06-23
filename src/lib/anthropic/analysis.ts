@@ -24,6 +24,12 @@ export type DocumentInput =
   | { type: 'text'; content: string }
   | { type: 'image'; base64: string; mediaType: string }
 
+export interface AnalysisReferenceLink {
+  name: string
+  url: string
+  content: string
+}
+
 function buildSystemPrompt(
   theme: Theme,
   subtopic: Subtopic | null,
@@ -33,13 +39,22 @@ function buildSystemPrompt(
   customSubtopicName?: string,
   oeaCriteria?: OeaCriteria | null,
   oeaItem?: OeaItem | null,
+  restrictToContext?: boolean,
+  referenceLinks: AnalysisReferenceLink[] = [],
 ): string {
   const themeName = customThemeName || theme.name
   const subtopicName = customSubtopicName || subtopic?.name
 
   const refContext = referenceDocs.length > 0
-    ? referenceDocs.map(d => `### ${d.name}\n${d.content?.substring(0, 4000) ?? '(sem conteúdo extraído)'}`).join('\n\n')
+    ? referenceDocs.map(d => {
+        const label = d.version ? `${d.name} (${d.version})` : d.name
+        return `### ${label}\n${d.content?.substring(0, 4000) ?? '(sem conteúdo extraído)'}`
+      }).join('\n\n')
     : 'Nenhum documento de referência cadastrado para este tema/subtema.'
+
+  const linksSection = referenceLinks.length > 0
+    ? `\n\n## Links de Referência Externos\nConteúdos extraídos de páginas web selecionadas para esta análise:\n\n${referenceLinks.map(l => `### ${l.name} (${l.url})\n${l.content.substring(0, 4000)}`).join('\n\n')}`
+    : ''
 
   const promptsSection = customPrompts.length > 0
     ? `\n## Instruções Específicas do Gestor\nAs instruções abaixo foram definidas pelo gestor para este tipo de análise. Responda a cada uma delas de forma objetiva com base no documento analisado.\n${customPrompts.map((p, i) => `### Instrução ${i + 1}: ${p.title}\n${p.content}`).join('\n\n')}\n`
@@ -52,6 +67,10 @@ function buildSystemPrompt(
     oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name}\n**Descrição do critério:**\n${oeaCriteria.description ?? ''}\n\nAnalise o documento com foco nos requisitos deste critério do OEA (IN RFB Nº 2.154).\n`
   }
 
+  const restrictionSection = restrictToContext
+    ? `\n## ⚠️ MODO RESTRITO — Apenas Base de Conhecimento Fornecida\nIMPORTANTE: Nesta análise, baseie-se EXCLUSIVAMENTE nos materiais de referência listados acima e no conteúdo do documento do cliente. Não utilize conhecimento externo de treinamento (legislação, normas, regulamentos) que não esteja explicitamente presente nos materiais fornecidos. Quando um item não puder ser avaliado por falta de referência, registre: "Informação não disponível na base de conhecimento fornecida."\n`
+    : ''
+
   return `Você é um especialista sênior em compliance e auditoria da LF Auditoria e Consultoria, com profundo conhecimento em ${themeName}${subtopicName ? ` - ${subtopicName}` : ''}.
 
 ## Sua missão
@@ -59,7 +78,8 @@ Analisar documentos de clientes com rigor técnico, identificando pontos de conf
 ${oeaFocusSection}
 ## Materiais de Referência Cadastrados
 ${refContext}
-${promptsSection}
+${linksSection}
+${promptsSection}${restrictionSection}
 ## Instruções de Análise
 1. Leia o documento do cliente atentamente
 2. Responda objetivamente a cada instrução específica do gestor (se houver)
@@ -109,9 +129,11 @@ export async function analyzeDocument(
   customSubtopicName?: string,
   oeaCriteria?: OeaCriteria | null,
   oeaItem?: OeaItem | null,
+  restrictToContext?: boolean,
+  referenceLinks: AnalysisReferenceLink[] = [],
 ): Promise<AnalysisResult> {
   const client = getAnthropicClient()
-  const systemPrompt = buildSystemPrompt(theme, subtopic, referenceDocs, customPrompts, customThemeName, customSubtopicName, oeaCriteria, oeaItem)
+  const systemPrompt = buildSystemPrompt(theme, subtopic, referenceDocs, customPrompts, customThemeName, customSubtopicName, oeaCriteria, oeaItem, restrictToContext, referenceLinks)
 
   type ContentBlock =
     | { type: 'text'; text: string }
@@ -140,12 +162,17 @@ export async function analyzeDocument(
     userContent = `## Documento para Análise: "${documentName}"\n\n${input.content.substring(0, 50000)}`
   }
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userContent as Parameters<typeof client.messages.create>[0]['messages'][0]['content'] }],
-  })
+  type SysBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+
+  const response = await client.messages.create(
+    {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 16000,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as SysBlock[] as Parameters<typeof client.messages.create>[0]['system'],
+      messages: [{ role: 'user', content: userContent as Parameters<typeof client.messages.create>[0]['messages'][0]['content'] }],
+    },
+    { headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' } },
+  )
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
 
@@ -229,12 +256,17 @@ Responda às perguntas do colaborador com base no documento e na análise, sendo
     ]
   }
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: conversationMessages as Parameters<typeof client.messages.create>[0]['messages'],
-  })
+  type SysBlock2 = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+
+  const response = await client.messages.create(
+    {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as SysBlock2[] as Parameters<typeof client.messages.create>[0]['system'],
+      messages: conversationMessages as Parameters<typeof client.messages.create>[0]['messages'],
+    },
+    { headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' } },
+  )
 
   return response.content[0].type === 'text' ? response.content[0].text : ''
 }
