@@ -1,5 +1,5 @@
 import { getAnthropicClient } from './client'
-import { ReferenceDocument, Theme, Subtopic, OeaCriteria, OeaItem, CompliancePoint, ImprovementSuggestion, ComplianceLevel } from '@/types'
+import { ReferenceDocument, Theme, Subtopic, OeaCriteria, OeaItem, CompliancePoint, ImprovementSuggestion, ComplianceLevel, Report } from '@/types'
 
 export interface PromptResponse {
   prompt: string
@@ -198,6 +198,8 @@ export async function analyzeDocument(
   }
 }
 
+const REPORT_PATCH_PREFIX = 'REPORT_PATCH:'
+
 export async function chatWithAnalysis(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   analysisContext: string,
@@ -205,7 +207,8 @@ export async function chatWithAnalysis(
   subtopic: Subtopic | null,
   documentContent: string = '',
   documentImage?: { base64: string; mediaType: string } | null,
-): Promise<string> {
+  currentReport?: Report | null,
+): Promise<{ message: string; patch: Partial<Report> | null }> {
   const client = getAnthropicClient()
 
   const documentSection = documentContent.trim()
@@ -214,13 +217,53 @@ export async function chatWithAnalysis(
       ? '\n## Documento Original\nO documento enviado é uma imagem — consulte-a nas mensagens da conversa.\n'
       : ''
 
+  const reportState = currentReport
+    ? JSON.stringify({
+        summary: currentReport.summary,
+        conclusion: currentReport.conclusion,
+        criteria_used: currentReport.criteria_used,
+        overall_compliance: currentReport.overall_compliance,
+        compliance_score: currentReport.compliance_score,
+        conforming_points: currentReport.conforming_points,
+        partial_points: currentReport.partial_points,
+        non_conforming_points: currentReport.non_conforming_points,
+        improvement_suggestions: currentReport.improvement_suggestions,
+        prompt_responses: currentReport.prompt_responses,
+      })
+    : null
+
+  const editSection = reportState
+    ? `\n## Estado Atual do Relatório\n${reportState}\n
+## Capacidade de Edição
+Quando o colaborador solicitar alterações no relatório (remover apontamentos, alterar textos, adicionar sugestões, recalcular score etc.), você PODE editar o relatório diretamente.
+
+Para aplicar edições, após a sua resposta de texto normal, adicione EXATAMENTE este bloco no final:
+
+REPORT_PATCH:{"campo": valor}
+
+Campos editáveis:
+- "summary": resumo executivo (string)
+- "conclusion": conclusão da análise (string)
+- "criteria_used": critérios utilizados (string)
+- "overall_compliance": "conforme" | "parcialmente_conforme" | "nao_conforme"
+- "compliance_score": 0 a 100
+- "conforming_points": [{item, description, reference}]
+- "partial_points": [{item, description, reference}]
+- "non_conforming_points": [{item, description, reference}]
+- "improvement_suggestions": [{priority: "alta"|"media"|"baixa", item, suggestion, reference}]
+- "prompt_responses": [{prompt, response}]
+
+Inclua NO PATCH apenas os campos que precisam mudar — não copie campos que não foram alterados.
+Quando NÃO houver edição, NÃO inclua o bloco REPORT_PATCH.\n`
+    : ''
+
   const systemPrompt = `Você é um assistente especialista da LF Auditoria e Consultoria, auxiliando na análise de conformidade em ${theme.name}${subtopic ? ` - ${subtopic.name}` : ''}.
 
 Você tem acesso ao documento original enviado pelo colaborador e ao relatório de análise gerado. Use ambos para responder com precisão às perguntas.
 ${documentSection}
 ## Relatório de Análise Gerado
 ${analysisContext}
-
+${editSection}
 Responda às perguntas do colaborador com base no documento e na análise, sendo claro, técnico e objetivo. Quando citar trechos do documento, indique que está referenciando o documento original. Use português brasileiro formal.`
 
   type TextBlock = { type: 'text'; text: string }
@@ -268,5 +311,21 @@ Responda às perguntas do colaborador com base no documento e na análise, sendo
     { headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' } },
   )
 
-  return response.content[0].type === 'text' ? response.content[0].text : ''
+  const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
+
+  let message = rawText
+  let patch: Partial<Report> | null = null
+
+  const patchIndex = rawText.lastIndexOf(REPORT_PATCH_PREFIX)
+  if (patchIndex !== -1) {
+    const candidate = rawText.slice(patchIndex + REPORT_PATCH_PREFIX.length).trim()
+    try {
+      patch = JSON.parse(candidate)
+      message = rawText.slice(0, patchIndex).trim()
+    } catch {
+      // malformed patch — return full text as message
+    }
+  }
+
+  return { message, patch }
 }

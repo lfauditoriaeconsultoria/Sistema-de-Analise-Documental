@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
     const body = await req.json()
-    const { analysisId, messages, analysisContext, documentContent, themeId, subtopicId } = body
+    const { analysisId, messages, analysisContext, documentContent, themeId, subtopicId, currentReport } = body
 
     if (!analysisId || !messages || !themeId) {
       return Response.json({ error: 'Parâmetros inválidos' }, { status: 400 })
@@ -52,22 +52,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const response = await chatWithAnalysis(
+    const { message, patch } = await chatWithAnalysis(
       messages,
       analysisContext ?? '',
       theme as Theme,
       subtopic as Subtopic | null,
       documentContent ?? '',
       documentImage,
+      currentReport ?? null,
     )
 
     // Save chat messages
     await supabase.from('chat_messages').insert([
       { analysis_id: analysisId, role: 'user', content: messages[messages.length - 1].content },
-      { analysis_id: analysisId, role: 'assistant', content: response },
+      { analysis_id: analysisId, role: 'assistant', content: message },
     ])
 
-    return Response.json({ response })
+    return Response.json({ response: message, patch })
   } catch (err: unknown) {
     console.error('[chat]', err)
     return Response.json({ error: 'Erro interno' }, { status: 500 })

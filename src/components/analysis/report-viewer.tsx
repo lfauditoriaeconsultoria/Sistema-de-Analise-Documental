@@ -401,6 +401,26 @@ export function ReportViewer({ analysis, report }: Props) {
     })
   }
 
+  async function applyAiPatch(patch: Partial<Report>) {
+    if (!liveReport || isEditing) return
+    const updated = { ...liveReport, ...patch }
+    setLiveReport(updated)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      await fetch(`/api/reports/${liveReport.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify(patch),
+      })
+    } catch {
+      // optimistic update already applied — silently ignore save errors
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
       {/* Header */}
@@ -686,6 +706,8 @@ export function ReportViewer({ analysis, report }: Props) {
           documentContent={analysis.document_content ?? ''}
           themeId={analysis.theme_id}
           subtopicId={analysis.subtopic_id}
+          currentReport={liveReport}
+          onReportPatch={applyAiPatch}
           onClose={() => setShowChat(false)}
         />
       )}

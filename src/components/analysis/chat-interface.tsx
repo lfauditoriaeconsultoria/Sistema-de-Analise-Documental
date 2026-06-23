@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { Send, X, Bot, User, Loader2 } from 'lucide-react'
+import { Send, X, Bot, User, Loader2, CheckCircle2 } from 'lucide-react'
+import type { Report } from '@/types'
 
 function inlineFormat(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g)
@@ -59,6 +60,7 @@ interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  patchApplied?: boolean
 }
 
 interface Props {
@@ -67,15 +69,17 @@ interface Props {
   documentContent: string
   themeId: string
   subtopicId: string | null
+  currentReport: Report | null
+  onReportPatch?: (patch: Partial<Report>) => Promise<void>
   onClose: () => void
 }
 
-export function ChatInterface({ analysisId, analysisContext, documentContent, themeId, subtopicId, onClose }: Props) {
+export function ChatInterface({ analysisId, analysisContext, documentContent, themeId, subtopicId, currentReport, onReportPatch, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       role: 'assistant',
-      content: `Olá! Sou o assistente de análise da LF Auditoria. Tenho acesso ao documento enviado e ao relatório gerado — posso responder perguntas sobre o conteúdo do documento, explicar os apontamentos da análise ou tirar dúvidas de conformidade. Como posso ajudar?`,
+      content: `Olá! Sou o assistente de análise da LF Auditoria. Tenho acesso ao documento enviado e ao relatório gerado.\n\nPosso responder perguntas sobre o conteúdo, explicar os apontamentos — e também **editar o relatório** se você solicitar. Por exemplo: "remova o apontamento X", "adicione uma sugestão sobre Y" ou "ajuste o score para 75".`,
     },
   ])
   const [input, setInput] = useState('')
@@ -112,12 +116,25 @@ export function ChatInterface({ analysisId, analysisContext, documentContent, th
           documentContent,
           themeId,
           subtopicId,
+          currentReport,
         }),
       })
 
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: json.response }])
+
+      let patchApplied = false
+      if (json.patch && onReportPatch) {
+        await onReportPatch(json.patch)
+        patchApplied = true
+      }
+
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: json.response,
+        patchApplied,
+      }])
     } catch {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -170,6 +187,12 @@ export function ChatInterface({ analysisId, analysisContext, documentContent, th
                 : 'bg-[#F0F4FF] dark:bg-[#1e3570]/60 text-[#1a2a5e] dark:text-[#e2e8f0] rounded-tl-sm'
             )}>
               {msg.role === 'assistant' ? <MarkdownMessage content={msg.content} /> : msg.content}
+              {msg.patchApplied && (
+                <div className="mt-2 flex items-center gap-1 text-xs text-green-600 dark:text-green-400 border-t border-green-200 dark:border-green-800/50 pt-1.5">
+                  <CheckCircle2 size={11} />
+                  <span>Relatório atualizado</span>
+                </div>
+              )}
             </div>
           </div>
         ))}
