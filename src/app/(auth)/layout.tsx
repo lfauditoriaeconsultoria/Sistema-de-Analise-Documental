@@ -47,7 +47,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             </div>
             <div>
               <p className="text-white font-bold text-2xl leading-tight">LF Consultoria</p>
-              <p className="text-white font-bold text-2xl leading-tight">e Consultoria</p>
+              <p className="text-white font-bold text-2xl leading-tight">e Auditoria</p>
               <p className="text-blue-200/80 text-sm mt-0.5">Compartilhando Conhecimento</p>
             </div>
           </div>
