@@ -127,6 +127,57 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  try {
+    const token = req.headers.get('authorization')?.replace('Bearer ', '')
+    const supabase = buildSupabase(token)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
+
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    if (profile?.role !== 'admin') {
+      return Response.json({ error: 'Acesso negado' }, { status: 403 })
+    }
+
+    const id = req.nextUrl.searchParams.get('id')
+    if (!id) return Response.json({ error: 'ID obrigatório' }, { status: 400 })
+
+    const body = await req.json() as {
+      name?: string
+      version?: string | null
+      description?: string | null
+      themeId?: string
+      subtopicId?: string | null
+      oeaCriteriaId?: string | null
+      oeaItemId?: string | null
+    }
+
+    const updates: Record<string, unknown> = {}
+    if (body.name !== undefined) updates.name = body.name
+    if ('version' in body) updates.version = body.version ?? null
+    if ('description' in body) updates.description = body.description ?? null
+    if (body.themeId !== undefined) updates.theme_id = body.themeId
+    if ('subtopicId' in body) updates.subtopic_id = body.subtopicId ?? null
+    if ('oeaCriteriaId' in body) updates.oea_criteria_id = body.oeaCriteriaId ?? null
+    if ('oeaItemId' in body) updates.oea_item_id = body.oeaItemId ?? null
+
+    const { data: doc, error } = await supabase
+      .from('reference_documents')
+      .update(updates)
+      .eq('id', id)
+      .select('*, theme:themes(name), subtopic:subtopics(name)')
+      .single()
+
+    if (error) return Response.json({ error: 'Erro ao atualizar documento' }, { status: 500 })
+
+    return Response.json({ document: doc })
+  } catch (err: unknown) {
+    console.error('[documents PATCH]', err)
+    return Response.json({ error: 'Erro interno' }, { status: 500 })
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const token = req.headers.get('authorization')?.replace('Bearer ', '')

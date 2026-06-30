@@ -13,7 +13,7 @@ import { formatDate, formatFileSize, cn } from '@/lib/utils'
 import {
   BookOpen, Upload, FileText, Trash2, Plus, Shield, Lock,
   X, Search, AlertCircle, MessageSquare, File, Settings, ChevronDown, ChevronRight, Download,
-  Link as LinkIcon, ExternalLink, Loader2 as Spinner, RefreshCw, CheckCircle2, XCircle, Clock,
+  Link as LinkIcon, ExternalLink, Loader2 as Spinner, RefreshCw, CheckCircle2, XCircle, Clock, Pencil,
 } from 'lucide-react'
 
 type DocRow = ReferenceDocument & { theme?: { name: string }; subtopic?: { name: string } | null }
@@ -285,6 +285,15 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
   const [uploadDefaultThemeId, setUploadDefaultThemeId] = useState('')
   const [uploadDefaultSubtopicId, setUploadDefaultSubtopicId] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [editingDoc, setEditingDoc] = useState<DocRow | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editVersion, setEditVersion] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editThemeId, setEditThemeId] = useState('')
+  const [editSubtopicId, setEditSubtopicId] = useState('')
+  const [editOeaCriteriaId, setEditOeaCriteriaId] = useState('')
+  const [editOeaItemId, setEditOeaItemId] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   // ── OEA criteria state ──
   const [oeaCriteriaList, setOeaCriteriaList] = useState<OeaCriteria[]>([])
@@ -369,6 +378,56 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
       toast({ type: 'error', title: 'Erro ao excluir documento' })
     } finally {
       setDeleting(null)
+    }
+  }
+
+  function openEditDoc(doc: DocRow) {
+    setEditingDoc(doc)
+    setEditName(doc.name)
+    setEditVersion(doc.version ?? '')
+    setEditDesc(doc.description ?? '')
+    setEditThemeId(doc.theme_id)
+    setEditSubtopicId(doc.subtopic_id ?? '')
+    setEditOeaCriteriaId(doc.oea_criteria_id ?? '')
+    setEditOeaItemId(doc.oea_item_id ?? '')
+  }
+
+  function closeEditDoc() {
+    setEditingDoc(null)
+    setEditName(''); setEditVersion(''); setEditDesc('')
+    setEditThemeId(''); setEditSubtopicId(''); setEditOeaCriteriaId(''); setEditOeaItemId('')
+  }
+
+  async function handleSaveEdit() {
+    if (!editingDoc || !editName.trim() || !editThemeId) {
+      toast({ type: 'error', title: 'Nome e tema são obrigatórios' })
+      return
+    }
+    setSavingEdit(true)
+    try {
+      const headers = await getAuthHeader()
+      const res = await fetch(`/api/documents?id=${editingDoc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          name: editName.trim(),
+          version: editVersion.trim() || null,
+          description: editDesc.trim() || null,
+          themeId: editThemeId,
+          subtopicId: editSubtopicId || null,
+          oeaCriteriaId: editOeaCriteriaId || null,
+          oeaItemId: editOeaItemId || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Erro ao salvar')
+      setDocs(prev => prev.map(d => d.id === editingDoc.id ? { ...d, ...json.document } : d))
+      toast({ type: 'success', title: 'Documento atualizado!' })
+      closeEditDoc()
+    } catch (err: unknown) {
+      toast({ type: 'error', title: 'Erro', description: err instanceof Error ? err.message : '' })
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -683,7 +742,7 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
                   {noSubtopic.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Geral</p>
-                      {noSubtopic.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} />)}
+                      {noSubtopic.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
                       {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id)} />}
                     </div>
                   )}
@@ -693,7 +752,7 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
                     return (
                       <div key={subId} className="space-y-2">
                         <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">{sub.name}</p>
-                        {subDocs.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} />)}
+                        {subDocs.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
                         {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id, sub.id)} />}
                       </div>
                     )
@@ -1078,6 +1137,93 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
         </div>
       )}
 
+      {/* ── Edit Document Modal ── */}
+      {editingDoc && (() => {
+        const editTheme = themesList.find(t => t.id === editThemeId)
+        const isOeaEdit = editTheme?.name === 'OEA'
+        const editOeaCriteriaObj = oeaCriteriaList.find(c => c.id === editOeaCriteriaId)
+        const filteredSubsEdit = subtopicsList.filter(s => s.theme_id === editThemeId)
+        return (
+          <Modal open={!!editingDoc} onOpenChange={open => { if (!open) closeEditDoc() }} title="Editar Documento" size="lg">
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">Nome *</label>
+                  <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border text-sm border-[#E2E8F0] dark:border-[#1e3570] bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C]" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">Versão <span className="text-[#94A3B8] font-normal">(opcional)</span></label>
+                  <input type="text" placeholder="Ex: v2.1" value={editVersion} onChange={e => setEditVersion(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border text-sm border-[#E2E8F0] dark:border-[#1e3570] bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C]" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] block mb-1.5">Tema *</label>
+                <select value={editThemeId} onChange={e => { setEditThemeId(e.target.value); setEditSubtopicId(''); setEditOeaCriteriaId(''); setEditOeaItemId('') }}
+                  className="w-full h-10 px-3 rounded-lg border border-[#E2E8F0] dark:border-[#1e3570] text-sm bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C]">
+                  <option value="">Selecione o tema</option>
+                  {themesList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+
+              {isOeaEdit && oeaCriteriaList.length > 0 && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] block mb-1.5">Critério OEA <span className="font-normal text-[#94A3B8]">(opcional)</span></label>
+                    <select value={editOeaCriteriaId} onChange={e => { setEditOeaCriteriaId(e.target.value); setEditOeaItemId('') }}
+                      className="w-full h-10 px-3 rounded-lg border border-[#E2E8F0] dark:border-[#1e3570] text-sm bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C]">
+                      <option value="">Todos os critérios</option>
+                      {(['geral', 'seguranca', 'conformidade'] as const).map(cat => {
+                        const items = oeaCriteriaList.filter(c => c.category === cat)
+                        if (items.length === 0) return null
+                        const label = cat === 'geral' ? 'Critérios Gerais' : cat === 'seguranca' ? 'Critérios de Segurança' : 'Critérios de Conformidade'
+                        return <optgroup key={cat} label={label}>{items.map(c => <option key={c.id} value={c.id}>{c.number}. {c.name}</option>)}</optgroup>
+                      })}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] block mb-1.5">Item/Subitem <span className="font-normal text-[#94A3B8]">(opcional)</span></label>
+                    <select value={editOeaItemId} onChange={e => setEditOeaItemId(e.target.value)} disabled={!editOeaCriteriaId}
+                      className="w-full h-10 px-3 rounded-lg border border-[#E2E8F0] dark:border-[#1e3570] text-sm bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C] disabled:opacity-50">
+                      <option value="">Todos os itens</option>
+                      {(editOeaCriteriaObj?.items ?? []).map(item => (
+                        <option key={item.id} value={item.id}>{item.item_number} – {item.description.substring(0, 60)}{item.description.length > 60 ? '...' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {editThemeId && !isOeaEdit && (
+                <div>
+                  <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] block mb-1.5">Subtema <span className="font-normal text-[#94A3B8]">(opcional)</span></label>
+                  <select value={editSubtopicId} onChange={e => setEditSubtopicId(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-[#E2E8F0] dark:border-[#1e3570] text-sm bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C]">
+                    <option value="">Geral (sem subtema)</option>
+                    {filteredSubsEdit.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">Descrição <span className="text-[#94A3B8] font-normal">(opcional)</span></label>
+                <textarea placeholder="Breve descrição do conteúdo..." value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={2}
+                  className="w-full px-3 py-2 rounded-lg border text-sm resize-none border-[#E2E8F0] dark:border-[#1e3570] bg-white dark:bg-[#0a1530] text-[#1a2a5e] dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-[#1B3A8C]" />
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeEditDoc}>Cancelar</Button>
+                <Button onClick={handleSaveEdit} loading={savingEdit} disabled={!editName.trim() || !editThemeId}>
+                  {savingEdit ? 'Salvando...' : 'Salvar alterações'}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
+
       {/* ── Upload Document Modal ── */}
       <Modal key={uploadModalKey} open={showUpload} onOpenChange={open => { setShowUpload(open) }} title="Novo Documento de Referência" size="lg">
         <UploadForm
@@ -1246,7 +1392,7 @@ function AddDocRow({ onClick }: { onClick: () => void }) {
   )
 }
 
-function DocRowItem({ doc, isAdmin, deleting, onDelete }: { doc: DocRow; isAdmin: boolean; deleting: boolean; onDelete: () => void }) {
+function DocRowItem({ doc, isAdmin, deleting, onDelete, onEdit }: { doc: DocRow; isAdmin: boolean; deleting: boolean; onDelete: () => void; onEdit: () => void }) {
   const [downloading, setDownloading] = useState(false)
 
   async function handleDownload() {
@@ -1308,10 +1454,16 @@ function DocRowItem({ doc, isAdmin, deleting, onDelete }: { doc: DocRow; isAdmin
           <Download size={14} />
         </button>
         {isAdmin && (
-          <button onClick={onDelete} disabled={deleting} title="Excluir documento"
-            className="p-1.5 rounded-lg text-[#94A3B8] hover:text-[#DC2626] hover:bg-[#FEE2E2] dark:hover:bg-red-900/30 transition-colors disabled:opacity-50">
-            <Trash2 size={14} />
-          </button>
+          <>
+            <button onClick={onEdit} title="Editar informações"
+              className="p-1.5 rounded-lg text-[#94A3B8] hover:text-[#1B3A8C] hover:bg-[#EEF2FF] dark:hover:bg-[#1e3570]/60 transition-colors">
+              <Pencil size={14} />
+            </button>
+            <button onClick={onDelete} disabled={deleting} title="Excluir documento"
+              className="p-1.5 rounded-lg text-[#94A3B8] hover:text-[#DC2626] hover:bg-[#FEE2E2] dark:hover:bg-red-900/30 transition-colors disabled:opacity-50">
+              <Trash2 size={14} />
+            </button>
+          </>
         )}
       </div>
     </div>
