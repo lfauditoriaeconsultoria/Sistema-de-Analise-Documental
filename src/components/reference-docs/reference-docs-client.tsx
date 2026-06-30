@@ -48,7 +48,7 @@ async function getAuthHeader(): Promise<Record<string, string>> {
 // ── Upload form as isolated component so useDropzone remounts each time ──
 function UploadForm({
   themes, subtopics, oeaCriteriaList, onSuccess, onCancel,
-  defaultThemeId = '', defaultSubtopicId = '',
+  defaultThemeId = '', defaultSubtopicId = '', defaultOeaCriteriaId = '',
 }: {
   themes: Theme[]
   subtopics: Subtopic[]
@@ -57,6 +57,7 @@ function UploadForm({
   onCancel: () => void
   defaultThemeId?: string
   defaultSubtopicId?: string
+  defaultOeaCriteriaId?: string
 }) {
   const { toast } = useToast()
   const [file, setFile] = useState<File | null>(null)
@@ -65,7 +66,7 @@ function UploadForm({
   const [docDesc, setDocDesc] = useState('')
   const [selectedThemeId, setSelectedThemeId] = useState(defaultThemeId)
   const [selectedSubtopicId, setSelectedSubtopicId] = useState(defaultSubtopicId)
-  const [selectedOeaCriteriaId, setSelectedOeaCriteriaId] = useState('')
+  const [selectedOeaCriteriaId, setSelectedOeaCriteriaId] = useState(defaultOeaCriteriaId)
   const [selectedOeaItemId, setSelectedOeaItemId] = useState('')
   const [uploading, setUploading] = useState(false)
 
@@ -284,6 +285,7 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
   const [uploadModalKey, setUploadModalKey] = useState(0)
   const [uploadDefaultThemeId, setUploadDefaultThemeId] = useState('')
   const [uploadDefaultSubtopicId, setUploadDefaultSubtopicId] = useState('')
+  const [uploadDefaultOeaCriteriaId, setUploadDefaultOeaCriteriaId] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [editingDoc, setEditingDoc] = useState<DocRow | null>(null)
   const [editName, setEditName] = useState('')
@@ -351,9 +353,10 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
     ? links.filter(l => l.theme_id === linkFilterTheme || !l.theme_id)
     : links
 
-  function openUploadModal(themeId = '', subtopicId = '') {
+  function openUploadModal(themeId = '', subtopicId = '', oeaCriteriaId = '') {
     setUploadDefaultThemeId(themeId)
     setUploadDefaultSubtopicId(subtopicId)
+    setUploadDefaultOeaCriteriaId(oeaCriteriaId)
     setUploadModalKey(k => k + 1)
     setShowUpload(true)
   }
@@ -364,6 +367,7 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
     setUploadModalKey(k => k + 1)
     setUploadDefaultThemeId('')
     setUploadDefaultSubtopicId('')
+    setUploadDefaultOeaCriteriaId('')
   }
 
   async function handleDeleteDoc(docId: string) {
@@ -720,12 +724,26 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
           {themesList.map(theme => {
             if (filterTheme && filterTheme !== theme.id) return null
             const themeDocs = groupedDocs[theme.id] ?? []
-            const subtopicGroups = subtopicsList.filter(s => s.theme_id === theme.id)
-              .reduce<Record<string, typeof themeDocs>>((acc, sub) => {
-                acc[sub.id] = themeDocs.filter(d => d.subtopic_id === sub.id)
-                return acc
-              }, {})
-            const noSubtopic = themeDocs.filter(d => !d.subtopic_id)
+            const isOeaTheme = theme.name === 'OEA'
+
+            // OEA: group by criteria
+            const oeaCriteriaGroups = isOeaTheme
+              ? oeaCriteriaList.reduce<Record<string, typeof themeDocs>>((acc, c) => {
+                  acc[c.id] = themeDocs.filter(d => d.oea_criteria_id === c.id)
+                  return acc
+                }, {})
+              : {}
+            const oeaNoGroup = isOeaTheme ? themeDocs.filter(d => !d.oea_criteria_id) : []
+
+            // Non-OEA: group by subtopic
+            const subtopicGroups = !isOeaTheme
+              ? subtopicsList.filter(s => s.theme_id === theme.id)
+                  .reduce<Record<string, typeof themeDocs>>((acc, sub) => {
+                    acc[sub.id] = themeDocs.filter(d => d.subtopic_id === sub.id)
+                    return acc
+                  }, {})
+              : {}
+            const noSubtopic = !isOeaTheme ? themeDocs.filter(d => !d.subtopic_id) : []
 
             return (
               <Card key={theme.id} padding="none">
@@ -739,30 +757,64 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
                   </div>
                 </div>
                 <div className="p-4 space-y-6">
-                  {noSubtopic.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Geral</p>
-                      {noSubtopic.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
-                      {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id)} />}
-                    </div>
+                  {/* OEA: render by criteria */}
+                  {isOeaTheme && (
+                    <>
+                      {oeaCriteriaList.map(criteria => {
+                        const critDocs = oeaCriteriaGroups[criteria.id] ?? []
+                        return (
+                          <div key={criteria.id} className="space-y-2">
+                            <p className="text-xs font-semibold text-[#64748B] dark:text-[#94a3b8] uppercase tracking-wide">{criteria.number}. {criteria.name}</p>
+                            {critDocs.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
+                            {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id, '', criteria.id)} />}
+                          </div>
+                        )
+                      })}
+                      {oeaNoGroup.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-[#64748B] dark:text-[#94a3b8] uppercase tracking-wide">Geral</p>
+                          {oeaNoGroup.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
+                          {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id)} />}
+                        </div>
+                      )}
+                      {themeDocs.length === 0 && oeaCriteriaList.length === 0 && (
+                        <div className="text-center py-6 text-[#94A3B8]">
+                          <BookOpen size={24} className="mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">Nenhum documento cadastrado para {theme.name}</p>
+                        </div>
+                      )}
+                    </>
                   )}
-                  {Object.entries(subtopicGroups).map(([subId, subDocs]) => {
-                    const sub = subtopicsList.find(s => s.id === subId)
-                    if (!sub) return null
-                    return (
-                      <div key={subId} className="space-y-2">
-                        <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">{sub.name}</p>
-                        {subDocs.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
-                        {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id, sub.id)} />}
-                      </div>
-                    )
-                  })}
-                  {themeDocs.length === 0 && subtopicsList.filter(s => s.theme_id === theme.id).length === 0 && (
-                    <div className="text-center py-6 text-[#94A3B8]">
-                      <BookOpen size={24} className="mx-auto mb-2 opacity-40" />
-                      <p className="text-sm">Nenhum documento cadastrado para {theme.name}</p>
-                      {isAdmin && <Button variant="ghost" size="sm" onClick={() => openUploadModal(theme.id)} className="mt-2"><Plus size={14} /> Adicionar</Button>}
-                    </div>
+
+                  {/* Non-OEA: render by subtopic */}
+                  {!isOeaTheme && (
+                    <>
+                      {noSubtopic.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Geral</p>
+                          {noSubtopic.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
+                          {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id)} />}
+                        </div>
+                      )}
+                      {Object.entries(subtopicGroups).map(([subId, subDocs]) => {
+                        const sub = subtopicsList.find(s => s.id === subId)
+                        if (!sub) return null
+                        return (
+                          <div key={subId} className="space-y-2">
+                            <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">{sub.name}</p>
+                            {subDocs.map(doc => <DocRowItem key={doc.id} doc={doc} isAdmin={isAdmin} deleting={deleting === doc.id} onDelete={() => handleDeleteDoc(doc.id)} onEdit={() => openEditDoc(doc)} />)}
+                            {isAdmin && <AddDocRow onClick={() => openUploadModal(theme.id, sub.id)} />}
+                          </div>
+                        )
+                      })}
+                      {themeDocs.length === 0 && subtopicsList.filter(s => s.theme_id === theme.id).length === 0 && (
+                        <div className="text-center py-6 text-[#94A3B8]">
+                          <BookOpen size={24} className="mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">Nenhum documento cadastrado para {theme.name}</p>
+                          {isAdmin && <Button variant="ghost" size="sm" onClick={() => openUploadModal(theme.id)} className="mt-2"><Plus size={14} /> Adicionar</Button>}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </Card>
@@ -1234,6 +1286,7 @@ export function ReferenceDocsClient({ themes: initialThemes, subtopics: initialS
           onCancel={() => setShowUpload(false)}
           defaultThemeId={uploadDefaultThemeId}
           defaultSubtopicId={uploadDefaultSubtopicId}
+          defaultOeaCriteriaId={uploadDefaultOeaCriteriaId}
         />
       </Modal>
 
