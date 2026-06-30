@@ -106,11 +106,13 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
   // Step 4
   const [clientName, setClientName] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [workType, setWorkType] = useState<'report' | 'adequacy'>('report')
 
   // Step 5
   const [analyzing, setAnalyzing] = useState(false)
 
   const isOthersTheme = selectedTheme?.name === 'Outros'
+  const isLgpdTheme = selectedTheme?.name === 'LGPD'
   const filteredSubtopics = subtopics.filter(s => s.theme_id === selectedTheme?.id)
 
   useEffect(() => {
@@ -241,6 +243,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       if (selectedOeaItem) formData.append('selectedOeaItemId', selectedOeaItem.id)
 
       formData.append('useExternalKnowledge', String(useExternalKnowledge))
+      formData.append('workType', isLgpdTheme ? workType : 'report')
 
       const activeDocIds = refDocs.filter(d => d.active).map(d => d.id)
       formData.append('activeRefDocIds', JSON.stringify(activeDocIds))
@@ -1220,6 +1223,67 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
               )}
             </div>
 
+            {/* Work type selector — LGPD only */}
+            {isLgpdTheme && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] block">
+                  Tipo de trabalho <span className="text-[#DC2626]">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setWorkType('report')}
+                    className={cn(
+                      'p-4 rounded-xl border-2 text-left transition-all',
+                      workType === 'report'
+                        ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
+                        : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#F8FAFC] dark:bg-[#0a1530]'
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={cn(
+                        'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
+                        workType === 'report' ? 'bg-[#1B3A8C] text-white' : 'bg-[#E2E8F0] dark:bg-[#1e3570] text-[#94A3B8]'
+                      )}>
+                        <FileText size={16} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0]">Relatório de Análise</p>
+                        <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-0.5 leading-relaxed">
+                          A IA realizará a análise do documento e gerará um relatório com os apontamentos identificados.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkType('adequacy')}
+                    className={cn(
+                      'p-4 rounded-xl border-2 text-left transition-all',
+                      workType === 'adequacy'
+                        ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
+                        : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#F8FAFC] dark:bg-[#0a1530]'
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={cn(
+                        'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
+                        workType === 'adequacy' ? 'bg-[#1B3A8C] text-white' : 'bg-[#E2E8F0] dark:bg-[#1e3570] text-[#94A3B8]'
+                      )}>
+                        <Pencil size={16} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0]">Proposta de Adequação</p>
+                        <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-0.5 leading-relaxed">
+                          A IA analisará o documento e apresentará uma proposta de reescrita das cláusulas que necessitem de adequação à LGPD.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="p-4 bg-[#F0F4FF] dark:bg-[#1e3570]/30 rounded-xl text-xs text-[#64748B] dark:text-[#94a3b8] space-y-1">
               <p className="font-medium text-[#1B3A8C] dark:text-blue-400">Resumo da análise</p>
               <p>
@@ -1261,9 +1325,13 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                   <Loader2 size={36} className="text-[#1B3A8C] dark:text-blue-400 animate-spin" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-[#1a2a5e] dark:text-[#e2e8f0]">Analisando documento...</h3>
+                  <h3 className="text-xl font-bold text-[#1a2a5e] dark:text-[#e2e8f0]">
+                    {workType === 'adequacy' ? 'Gerando proposta de adequação...' : 'Analisando documento...'}
+                  </h3>
                   <p className="text-[#64748B] dark:text-[#94a3b8] text-sm mt-2">
-                    A IA está avaliando o conteúdo com base na base de conhecimento configurada
+                    {workType === 'adequacy'
+                      ? 'A IA está elaborando a proposta de reescrita das cláusulas com base nos requisitos da LGPD'
+                      : 'A IA está avaliando o conteúdo com base na base de conhecimento configurada'}
                   </p>
                 </div>
                 <div className="w-full max-w-xs space-y-2">

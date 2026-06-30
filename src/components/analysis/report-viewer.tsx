@@ -10,11 +10,12 @@ import {
   CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp,
   MessageSquare, FileText, Calendar, User, ArrowLeft,
   ArrowUpCircle, ArrowDownCircle, MinusCircle, Lightbulb,
-  Pencil, Save, X, Trash2, FileDown, FileType,
+  Pencil, Save, X, Trash2, FileDown, FileType, ArrowRight,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { ADEQUACY_RAW_PREFIX, AdequacyResult } from '@/lib/anthropic/analysis'
 
 interface Props {
   analysis: Analysis & { theme?: { name: string; color: string }; subtopic?: { name: string } | null }
@@ -273,6 +274,68 @@ function SuggestionsList({
   )
 }
 
+// ── AdequacyViewer ─────────────────────────────────────────────────────────────
+function AdequacyViewer({ data }: { data: AdequacyResult }) {
+  const proposals = data.proposals ?? []
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EEF2FF] dark:bg-[#1e3570]/60 border border-[#C7D2FE] dark:border-[#1e3570]">
+          <Pencil size={13} className="text-[#4338CA] dark:text-indigo-300" />
+          <span className="text-xs font-semibold text-[#4338CA] dark:text-indigo-300">Proposta de Adequação LGPD</span>
+        </div>
+        <span className="text-xs text-[#64748B] dark:text-[#94a3b8]">
+          {proposals.length} {proposals.length === 1 ? 'proposta identificada' : 'propostas identificadas'}
+        </span>
+      </div>
+
+      {proposals.length === 0 && (
+        <Card>
+          <p className="text-sm text-[#64748B] dark:text-[#94a3b8] text-center py-4">
+            Nenhuma proposta de adequação identificada.
+          </p>
+        </Card>
+      )}
+
+      {/* Proposals list */}
+      <div className="divide-y divide-[#E2E8F0] dark:divide-[#1e3570] rounded-xl border border-[#E2E8F0] dark:border-[#1e3570] overflow-hidden">
+        {proposals.map((p, i) => (
+          <div key={i} className="px-4 py-5 bg-white dark:bg-[#0f1d42] space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#EEF2FF] dark:bg-[#1e3570] text-[10px] font-bold text-[#4338CA] dark:text-indigo-300 flex-shrink-0">
+                {i + 1}
+              </span>
+              <p className="font-semibold text-sm text-[#1a2a5e] dark:text-[#e2e8f0]">{p.reference}</p>
+              {p.lgpd_basis && (
+                <span className="ml-auto inline-block text-xs bg-[#DBEAFE] dark:bg-[#1e3570] text-[#1B3A8C] dark:text-blue-300 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  {p.lgpd_basis}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="rounded-lg border border-[#FECACA] dark:border-red-800/50 bg-[#FFF5F5] dark:bg-red-900/20 p-3 space-y-1">
+                <p className="text-xs font-semibold text-[#DC2626] dark:text-red-400">Texto Original</p>
+                <p className="text-xs text-[#475569] dark:text-[#94a3b8] leading-relaxed whitespace-pre-line">{p.original}</p>
+              </div>
+              <div className="rounded-lg border border-[#BBF7D0] dark:border-green-700/50 bg-[#F0FDF4] dark:bg-green-900/20 p-3 space-y-1">
+                <p className="text-xs font-semibold text-[#16A34A] dark:text-green-400">Texto Proposto</p>
+                <p className="text-xs text-[#475569] dark:text-[#94a3b8] leading-relaxed whitespace-pre-line">{p.proposed}</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#DBEAFE] dark:border-[#1e3570] bg-[#F0F4FF] dark:bg-[#1e3570]/20 p-3">
+              <p className="text-xs text-[#475569] dark:text-[#94a3b8] leading-relaxed">{p.justification}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── ReportViewer ───────────────────────────────────────────────────────────────
 export function ReportViewer({ analysis, report }: Props) {
   const [showChat, setShowChat] = useState(false)
@@ -309,6 +372,12 @@ export function ReportViewer({ analysis, report }: Props) {
 
   const theme = analysis.theme as unknown as { name: string; color: string } | undefined
   const subtopic = analysis.subtopic as unknown as { name: string } | null | undefined
+
+  const rawAnalysis = liveReport?.raw_analysis ?? ''
+  const isAdequacy = rawAnalysis.startsWith(ADEQUACY_RAW_PREFIX)
+  const adequacyData: AdequacyResult | null = isAdequacy
+    ? (() => { try { return JSON.parse(rawAnalysis.slice(ADEQUACY_RAW_PREFIX.length)) } catch { return null } })()
+    : null
 
   const displayed = isEditing ? draft : liveReport
 
@@ -537,7 +606,11 @@ export function ReportViewer({ analysis, report }: Props) {
         </Card>
       )}
 
-      {displayed && (
+      {displayed && isAdequacy && adequacyData && (
+        <AdequacyViewer data={adequacyData} />
+      )}
+
+      {displayed && !isAdequacy && (
         <>
           {/* Prompt Responses */}
           <PromptResponsesSection

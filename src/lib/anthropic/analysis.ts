@@ -30,6 +30,72 @@ export interface AnalysisReferenceLink {
   content: string
 }
 
+export interface AdequacyProposal {
+  reference: string
+  original: string
+  proposed: string
+  justification: string
+  lgpd_basis: string
+}
+
+export interface AdequacyResult {
+  proposals: AdequacyProposal[]
+}
+
+export const ADEQUACY_RAW_PREFIX = '__ADEQUACY__'
+
+function buildAdequacySystemPrompt(
+  referenceDocs: ReferenceDocument[],
+  referenceLinks: AnalysisReferenceLink[] = [],
+  restrictToContext?: boolean,
+): string {
+  const refContext = referenceDocs.length > 0
+    ? referenceDocs.map(d => {
+        const label = d.version ? `${d.name} (${d.version})` : d.name
+        return `### ${label}\n${d.content?.substring(0, 4000) ?? '(sem conteúdo extraído)'}`
+      }).join('\n\n')
+    : 'Nenhum documento de referência cadastrado para LGPD.'
+
+  const linksSection = referenceLinks.length > 0
+    ? `\n\n## Links de Referência Externos\nConteúdos extraídos de páginas web selecionadas para esta análise:\n\n${referenceLinks.map(l => `### ${l.name} (${l.url})\n${l.content.substring(0, 4000)}`).join('\n\n')}`
+    : ''
+
+  const restrictionSection = restrictToContext
+    ? `\n## ⚠️ MODO RESTRITO — Apenas Base de Conhecimento Fornecida\nIMPORTANTE: Baseie-se EXCLUSIVAMENTE nos materiais de referência listados acima. Não utilize conhecimento externo de treinamento não fornecido explicitamente.\n`
+    : ''
+
+  return `Você é um especialista sênior em LGPD (Lei Geral de Proteção de Dados — Lei nº 13.709/2018) da LF Auditoria e Consultoria.
+
+## Sua Missão
+Analisar o documento fornecido e identificar APENAS as cláusulas/seções que necessitam de adequação à LGPD, propondo uma reescrita objetiva para cada uma.
+${restrictionSection}
+## Materiais de Referência Cadastrados
+${refContext}
+${linksSection}
+
+## Instruções
+1. Leia o documento identificando cláusulas com problemas de conformidade LGPD
+2. Para cada cláusula problemática: registre a referência, um trecho representativo do texto original (máx. 400 caracteres), o texto proposto (completo e adequado) e a justificativa em 1-2 frases
+3. Fundamente cada proposta no artigo/inciso específico da LGPD
+4. CRÍTICO: O JSON deve estar COMPLETO e válido. Se estiver próximo do limite, feche o array e o JSON corretamente antes de parar.
+
+## Formato de Resposta
+Responda SOMENTE com este JSON válido, sem texto adicional:
+{
+  "proposals": [
+    {
+      "reference": "<identificação da cláusula/seção>",
+      "original": "<trecho representativo — máx. 400 caracteres>",
+      "proposed": "<texto proposto completo e adequado à LGPD>",
+      "justification": "<motivo da alteração em 1-2 frases>",
+      "lgpd_basis": "<art. X, § Y da LGPD>"
+    }
+  ]
+}
+
+Use linguagem formal e profissional em português brasileiro.`
+}
+
 function buildSystemPrompt(
   theme: Theme,
   subtopic: Subtopic | null,
@@ -131,8 +197,63 @@ export async function analyzeDocument(
   oeaItem?: OeaItem | null,
   restrictToContext?: boolean,
   referenceLinks: AnalysisReferenceLink[] = [],
+  workType: 'report' | 'adequacy' = 'report',
 ): Promise<AnalysisResult> {
   const client = getAnthropicClient()
+
+  // ── Adequacy proposal path ────────────────────────────────────────────────────
+  if (workType === 'adequacy') {
+    const systemPrompt = buildAdequacySystemPrompt(referenceDocs, referenceLinks, restrictToContext)
+    type ContentBlock = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }
+    const userContent: string | ContentBlock[] = input.type === 'image'
+      ? [
+          { type: 'image', source: { type: 'base64', media_type: (['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const).includes(input.mediaType as 'image/jpeg') ? input.mediaType as 'image/jpeg' : 'image/jpeg', data: input.base64 } },
+          { type: 'text', text: `## Documento para Adequação à LGPD: "${documentName}"\n\nAnalise a imagem do documento acima conforme as instruções.` },
+        ]
+      : `## Documento para Adequação à LGPD: "${documentName}"\n\n${input.content.substring(0, 50000)}`
+
+    type SysBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+    const response = await client.messages.create(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16000,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as SysBlock[] as Parameters<typeof client.messages.create>[0]['system'],
+        messages: [{ role: 'user', content: userContent as Parameters<typeof client.messages.create>[0]['messages'][0]['content'] }],
+      },
+      { headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' } },
+    )
+
+    const firstBlock = response.content[0]
+    const rawText = firstBlock?.type === 'text' ? firstBlock.text : ''
+    if (!rawText) throw new Error('A IA não retornou conteúdo para a proposta de adequação.')
+    if (response.stop_reason === 'max_tokens') {
+      console.warn('[adequacy] resposta cortada em max_tokens — tentando parsear JSON parcial')
+    }
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error(`A IA não retornou um JSON válido para a proposta de adequação. Resposta recebida: ${rawText.substring(0, 200)}`)
+    let parsed: AdequacyResult
+    try {
+      parsed = JSON.parse(jsonMatch[0])
+    } catch (parseErr) {
+      throw new Error(`Erro ao interpretar a resposta da IA: ${parseErr instanceof Error ? parseErr.message : 'JSON inválido'}`)
+    }
+
+    return {
+      overall_compliance: 'parcialmente_conforme' as ComplianceLevel,
+      compliance_score: 0,
+      summary: '',
+      criteria_used: 'LGPD — Lei nº 13.709/2018',
+      prompt_responses: [],
+      conforming_points: [],
+      partial_points: [],
+      non_conforming_points: [],
+      improvement_suggestions: [],
+      conclusion: '',
+      raw_analysis: ADEQUACY_RAW_PREFIX + JSON.stringify(parsed),
+    }
+  }
+
+  // ── Standard compliance report path ──────────────────────────────────────────
   const systemPrompt = buildSystemPrompt(theme, subtopic, referenceDocs, customPrompts, customThemeName, customSubtopicName, oeaCriteria, oeaItem, restrictToContext, referenceLinks)
 
   type ContentBlock =

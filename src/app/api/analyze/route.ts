@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
     const selectedOeaItemId = formData.get('selectedOeaItemId') as string | null
     const useExternalKnowledgeRaw = formData.get('useExternalKnowledge') as string | null
     const restrictToContext = useExternalKnowledgeRaw === 'false'
+    const workType = (formData.get('workType') as string | null ?? 'report') as 'report' | 'adequacy'
 
     // Admin client para dados de configuração (themes, subtopics, reference_documents)
     const [{ data: theme }, { data: subtopic }, { data: oeaCriteriaData }, { data: oeaItemData }] = await Promise.all([
@@ -211,6 +212,7 @@ export async function POST(req: NextRequest) {
       oeaItemData as OeaItem | null,
       restrictToContext,
       referenceLinks,
+      workType,
     )
 
     const reportPayload: Record<string, unknown> = {
