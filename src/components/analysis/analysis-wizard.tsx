@@ -1084,7 +1084,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0]">
-                  Conhecimento externo (Claude AI)
+                  Conhecimento externo habilitado
                 </p>
                 <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-0.5 leading-relaxed">
                   A IA poderá consultar o conhecimento externo armazenado no Claude AI.
