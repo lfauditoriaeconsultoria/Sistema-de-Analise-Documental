@@ -88,7 +88,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
 
   // Step 3
   const [kbTab, setKbTab] = useState<'docs' | 'prompts' | 'links'>('docs')
-  const [useExternalKnowledge, setUseExternalKnowledge] = useState(true)
+  const [useExternalKnowledge, setUseExternalKnowledge] = useState(false)
   const [loadingKB, setLoadingKB] = useState(false)
   const [refDocs, setRefDocs] = useState<RefDocItem[]>([])
   const [sessionDocs, setSessionDocs] = useState<SessionRefDoc[]>([])
@@ -818,32 +818,6 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                     </div>
                   ))}
 
-                  {/* Add document form or button */}
-                  {showAddDoc ? (
-                    <div className="rounded-xl border-2 border-dashed border-[#1B3A8C] dark:border-blue-500/50 p-4 space-y-3">
-                      <p className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">Selecione um arquivo</p>
-                      <input
-                        type="file"
-                        accept=".pdf,.docx,.txt,.csv"
-                        disabled={uploadingDoc}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) void addSessionDoc(f) }}
-                        className="block w-full text-sm text-[#64748B] dark:text-[#94a3b8] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-[#EEF2FF] dark:file:bg-[#1e3570] file:text-[#1B3A8C] dark:file:text-blue-300 hover:file:bg-[#DBEAFE] cursor-pointer"
-                      />
-                      {uploadingDoc && (
-                        <div className="flex items-center gap-2 text-sm text-[#1B3A8C] dark:text-blue-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          Extraindo texto do documento...
-                        </div>
-                      )}
-                      <Button size="sm" variant="ghost" onClick={() => setShowAddDoc(false)} disabled={uploadingDoc}>
-                        Cancelar
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button variant="secondary" size="sm" onClick={() => setShowAddDoc(true)} className="w-full">
-                      <Plus size={14} /> Adicionar documento para esta sessão
-                    </Button>
-                  )}
                 </>
               )}
             </div>
@@ -1110,12 +1084,10 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0]">
-                  {useExternalKnowledge ? 'Conhecimento externo habilitado' : 'Somente base de conhecimento local'}
+                  Conhecimento externo (Claude AI)
                 </p>
                 <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-0.5 leading-relaxed">
-                  {useExternalKnowledge
-                    ? 'A IA utilizará todos os materiais da base de conhecimento e poderá consultar o conhecimento externo armazenado no Claude AI.'
-                    : 'A IA se baseará exclusivamente nos documentos, prompts e links cadastrados na base de conhecimento, sem consultar fontes externas.'}
+                  A IA poderá consultar o conhecimento externo armazenado no Claude AI.
                 </p>
               </div>
               <div className={cn(
