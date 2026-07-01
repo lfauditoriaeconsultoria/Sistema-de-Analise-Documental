@@ -29,6 +29,7 @@ export default async function AdminPage() {
       email: authUser.email ?? '',
       full_name: prof?.full_name ?? null,
       role: prof?.role ?? 'colaborador',
+      status: (prof?.status ?? 'pending') as 'pending' | 'active',
       created_at: prof?.created_at ?? authUser.created_at,
     }
   }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())

@@ -20,10 +20,13 @@ export interface OeaCriteria {
   items?: OeaItem[]
 }
 
+export type UserStatus = 'pending' | 'active'
+
 export interface Profile {
   id: string
   full_name: string | null
   role: UserRole
+  status: UserStatus
   avatar_url: string | null
   created_at: string
   updated_at: string

@@ -16,6 +16,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq('id', user.id)
     .single()
 
+  if (!profile || profile.status === 'pending') redirect('/pending')
+
   return (
     <div className="flex min-h-screen bg-[#F0F4FF] dark:bg-[#080f2a] transition-colors">
       <Sidebar profile={profile as Profile | null} />

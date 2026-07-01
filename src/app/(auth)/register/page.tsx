@@ -38,7 +38,7 @@ export default function RegisterPage() {
         options: { data: { full_name: name } },
       })
       if (error) throw error
-      toast({ type: 'success', title: 'Conta criada!', description: 'Verifique seu e-mail para confirmar o cadastro.' })
+      toast({ type: 'success', title: 'Cadastro realizado!', description: 'Aguarde a aprovação de um administrador para acessar o sistema.' })
       router.push('/login')
     } catch (err: unknown) {
       toast({

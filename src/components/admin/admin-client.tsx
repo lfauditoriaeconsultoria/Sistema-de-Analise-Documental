@@ -9,13 +9,14 @@ import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate } from '@/lib/utils'
-import { Users, Edit2, Trash2, Shield, Eye, EyeOff } from 'lucide-react'
+import { Users, Edit2, Trash2, Shield, Eye, EyeOff, Clock, CheckCircle, XCircle } from 'lucide-react'
 
 interface UserRow {
   id: string
   email: string
   full_name: string | null
   role: string
+  status: 'pending' | 'active'
   created_at: string
 }
 
@@ -39,6 +40,46 @@ export function AdminClient({ users: initialUsers, currentUserId }: Props) {
 
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+
+  const pendingUsers = users.filter(u => u.status === 'pending')
+  const activeUsers = users.filter(u => u.status === 'active')
+
+  async function handleApprove(user: UserRow) {
+    setApprovingId(user.id)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ status: 'active' }),
+      })
+      if (!res.ok) { toast({ type: 'error', title: 'Erro ao aprovar usuário' }); return }
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'active' as const } : u))
+      toast({ type: 'success', title: `${user.full_name ?? user.email} aprovado com sucesso` })
+    } finally {
+      setApprovingId(null)
+    }
+  }
+
+  async function handleReject(user: UserRow) {
+    setRejectingId(user.id)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      if (!res.ok) { toast({ type: 'error', title: 'Erro ao rejeitar cadastro' }); return }
+      setUsers(prev => prev.filter(u => u.id !== user.id))
+      toast({ type: 'success', title: 'Cadastro rejeitado e removido' })
+    } finally {
+      setRejectingId(null)
+    }
+  }
 
   function openEdit(user: UserRow) {
     setEditTarget(user)
@@ -116,16 +157,65 @@ export function AdminClient({ users: initialUsers, currentUserId }: Props) {
         <p className="text-sm text-[#64748B] mt-0.5">Gestão de usuários do sistema</p>
       </div>
 
+      {/* Pending users */}
+      {pendingUsers.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <Clock size={18} /> Aguardando aprovação
+            </CardTitle>
+            <Badge variant="muted">{pendingUsers.length} pendente(s)</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {pendingUsers.map(user => (
+                <div key={user.id} className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/10">
+                  <div className="w-10 h-10 rounded-full bg-amber-200 dark:bg-amber-800/40 flex items-center justify-center text-amber-700 dark:text-amber-300 font-bold flex-shrink-0 text-sm">
+                    {user.full_name?.charAt(0).toUpperCase() ?? user.email.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-[#1a2a5e] dark:text-[#e2e8f0] truncate">
+                      {user.full_name ?? <span className="text-[#94A3B8] italic">Sem nome</span>}
+                    </p>
+                    <p className="text-xs text-[#64748B] truncate">{user.email}</p>
+                    <p className="text-xs text-[#94A3B8]">Cadastrado em {formatDate(user.created_at)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={() => handleApprove(user)}
+                      loading={approvingId === user.id}
+                      className="gap-1.5 bg-[#16A34A] hover:bg-[#15803d] text-white border-0"
+                    >
+                      <CheckCircle size={14} /> Aprovar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleReject(user)}
+                      disabled={rejectingId === user.id}
+                      className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      <XCircle size={14} /> Rejeitar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users size={18} /> Usuários do sistema
           </CardTitle>
-          <Badge variant="primary">{users.length} usuário(s)</Badge>
+          <Badge variant="primary">{activeUsers.length} usuário(s)</Badge>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {users.map(user => (
+            {activeUsers.map(user => (
               <div key={user.id} className="flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:bg-[#F8FAFC]">
                 <div className="w-10 h-10 rounded-full bg-[#1B3A8C] flex items-center justify-center text-white font-bold flex-shrink-0 text-sm">
                   {user.full_name?.charAt(0).toUpperCase() ?? user.email.charAt(0).toUpperCase()}

@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (error || !user) return Response.json({ error }, { status })
 
     const body = await req.json()
-    const { full_name, email, password, role } = body
+    const { full_name, email, password, role, status: newStatus } = body
     const admin = createAdminClient()
 
     const authUpdate: { email?: string; password?: string } = {}
@@ -45,6 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const profileUpdate: Record<string, string> = {}
     if (full_name !== undefined) profileUpdate.full_name = full_name
     if (role) profileUpdate.role = role
+    if (newStatus) profileUpdate.status = newStatus
 
     if (Object.keys(profileUpdate).length > 0) {
       const { error: profileErr } = await admin.from('profiles').update(profileUpdate).eq('id', id)
