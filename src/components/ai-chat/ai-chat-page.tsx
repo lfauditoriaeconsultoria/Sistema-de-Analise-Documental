@@ -7,6 +7,7 @@ import {
   Bot, Plus, Trash2, Send, Paperclip, X,
   FileText, Image as ImageIcon, Loader2, MessageSquare,
   File as FileIcon, Shield, Scale, BookOpen, Globe, DatabaseZap,
+  ChevronLeft,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { AiChatConversation, AiChatMessage } from '@/types'
@@ -147,6 +148,8 @@ export function AiChatPage() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [useExternalKnowledge, setUseExternalKnowledge] = useState(true)
+  // Mobile: show conversation list (true) or chat area (false)
+  const [showConvList, setShowConvList] = useState(true)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -207,6 +210,7 @@ export function AiChatPage() {
     setMessages([])
     setInput('')
     setAttachments([])
+    setShowConvList(false)
   }
 
   // Delete a conversation
@@ -397,10 +401,14 @@ export function AiChatPage() {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex -m-6 overflow-hidden bg-white dark:bg-[#080f2a]" style={{ height: 'calc(100vh - 56px)' }}>
+    <div className="flex -m-3 sm:-m-6 overflow-hidden bg-white dark:bg-[#080f2a]" style={{ height: 'calc(100dvh - 56px)' }}>
 
       {/* ── Left panel: conversation list ── */}
-      <aside className="w-64 flex-shrink-0 flex flex-col border-r border-[#E2E8F0] dark:border-[#1e3570] bg-[#F8FAFC] dark:bg-[#0a1530]">
+      <aside className={cn(
+        'flex-shrink-0 flex-col border-r border-[#E2E8F0] dark:border-[#1e3570] bg-[#F8FAFC] dark:bg-[#0a1530]',
+        'w-full md:w-64',
+        showConvList ? 'flex' : 'hidden md:flex',
+      )}>
         <div className="p-3 border-b border-[#E2E8F0] dark:border-[#1e3570]">
           <button
             onClick={startNewConversation}
@@ -426,8 +434,8 @@ export function AiChatPage() {
                 key={conv.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => setActiveId(conv.id)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setActiveId(conv.id) }}
+                onClick={() => { setActiveId(conv.id); setShowConvList(false) }}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { setActiveId(conv.id); setShowConvList(false) } }}
                 className={cn(
                   'w-full text-left px-3 py-2.5 rounded-lg group flex items-start gap-2 transition-colors cursor-pointer',
                   activeId === conv.id
@@ -472,16 +480,26 @@ export function AiChatPage() {
       </aside>
 
       {/* ── Main chat area ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={cn(
+        'flex-1 flex-col min-w-0',
+        !showConvList ? 'flex' : 'hidden md:flex',
+      )}>
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1e3570] bg-white dark:bg-[#0a1530]">
+        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-3.5 border-b border-[#E2E8F0] dark:border-[#1e3570] bg-white dark:bg-[#0a1530]">
+          <button
+            onClick={() => setShowConvList(true)}
+            className="md:hidden p-1.5 rounded-lg text-[#64748B] hover:bg-[#F0F4FF] dark:hover:bg-[#1e3570]/40 transition-colors flex-shrink-0"
+            aria-label="Voltar para conversas"
+          >
+            <ChevronLeft size={18} />
+          </button>
           <div className="w-8 h-8 rounded-full lf-gradient flex items-center justify-center flex-shrink-0">
             <Bot size={16} className="text-white" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-[#1a2a5e] dark:text-white">Consultor IA</p>
-            <p className="text-xs text-[#64748B] dark:text-[#94a3b8]">Especialista em OEA · LGPD · Compliance</p>
+            <p className="text-xs text-[#64748B] dark:text-[#94a3b8] hidden sm:block">Especialista em OEA · LGPD · Compliance</p>
           </div>
 
           {/* Knowledge source toggle */}
