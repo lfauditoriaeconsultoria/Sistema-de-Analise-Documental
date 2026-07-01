@@ -14,7 +14,7 @@ export function DashboardShell({ profile, children }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex min-h-screen bg-[#F0F4FF] dark:bg-[#080f2a] transition-colors">
+    <div className="flex h-screen overflow-hidden bg-[#F0F4FF] dark:bg-[#080f2a] transition-colors">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
@@ -41,7 +41,7 @@ export function DashboardShell({ profile, children }: Props) {
           profile={profile}
           onMenuToggle={() => setMobileOpen(o => !o)}
         />
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto min-h-0">
           <div className="p-3 sm:p-6">
             {children}
           </div>

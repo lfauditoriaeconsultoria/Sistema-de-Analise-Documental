@@ -53,7 +53,7 @@ export function Sidebar({ profile, onNavigate }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'flex flex-col bg-[#1B3A8C] text-white transition-all duration-300 min-h-screen',
+        'flex flex-col bg-[#1B3A8C] text-white transition-all duration-300 h-full min-h-screen',
         collapsed ? 'w-16' : 'w-64'
       )}
     >
