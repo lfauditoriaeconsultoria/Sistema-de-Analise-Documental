@@ -32,9 +32,10 @@ const navItems: NavItem[] = [
 
 interface SidebarProps {
   profile: Profile | null
+  onNavigate?: () => void
 }
 
-export function Sidebar({ profile }: SidebarProps) {
+export function Sidebar({ profile, onNavigate }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
@@ -98,6 +99,7 @@ export function Sidebar({ profile }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all',
                 active

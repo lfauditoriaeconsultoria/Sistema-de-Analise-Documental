@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Sidebar } from '@/components/layout/sidebar'
-import { Header } from '@/components/layout/header'
+import { DashboardShell } from '@/components/layout/dashboard-shell'
 import { Profile } from '@/types'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -19,16 +18,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!profile || profile.status !== 'active') redirect('/pending')
 
   return (
-    <div className="flex min-h-screen bg-[#F0F4FF] dark:bg-[#080f2a] transition-colors">
-      <Sidebar profile={profile as Profile | null} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header profile={profile as Profile | null} />
-        <main className="flex-1 overflow-auto">
-          <div className="p-6">
-            {children}
-          </div>
-        </main>
-      </div>
-    </div>
+    <DashboardShell profile={profile as Profile | null}>
+      {children}
+    </DashboardShell>
   )
 }
