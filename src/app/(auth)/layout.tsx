@@ -108,7 +108,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         {/* Bottom: copyright */}
         <p className="relative z-10 text-blue-200/40 text-xs mt-5">
-          © {new Date().getFullYear()} LF Auditoria e Consultoria. Todos os direitos reservados.
+          © {new Date().getFullYear()} LF Consultoria e Auditoria. Todos os direitos reservados.
         </p>
       </div>
 
@@ -140,7 +140,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         {/* Mobile copyright */}
         <p className={`lg:hidden mt-6 text-xs text-center ${isDark ? 'text-blue-300/50' : 'text-[#94A3B8]'}`}>
-          © {new Date().getFullYear()} LF Auditoria e Consultoria
+          © {new Date().getFullYear()} LF Consultoria e Auditoria
         </p>
       </div>
     </div>
