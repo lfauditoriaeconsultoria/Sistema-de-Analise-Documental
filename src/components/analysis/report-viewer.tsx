@@ -351,7 +351,7 @@ export function ReportViewer({ analysis, report }: Props) {
     try {
       const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(`/api/reports/${liveReport!.id}/docx`, {
+      const res = await fetch(`/api/reports/${analysis.id}/docx`, {
         headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
       })
       if (!res.ok) throw new Error()

@@ -3,6 +3,15 @@ import { notFound } from 'next/navigation'
 import { Analysis, Report } from '@/types'
 import { PrintActions } from './print-actions'
 import { formatDateShort } from '@/lib/utils'
+import { ADEQUACY_RAW_PREFIX } from '@/lib/anthropic/analysis'
+
+type AdequacyProposal = {
+  reference: string
+  original: string
+  proposed: string
+  justification: string
+  lgpd_basis: string
+}
 
 export async function generateMetadata() {
   return { title: 'Relatório de Conformidade — LF Consultoria' }
@@ -30,6 +39,16 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
 
   const theme = analysis.theme as { name: string; color: string } | undefined
   const subtopic = analysis.subtopic as { name: string } | null | undefined
+
+  // Adequacy detection
+  const isAdequacy = !!report.raw_analysis?.startsWith(ADEQUACY_RAW_PREFIX)
+  let adequacyProposals: AdequacyProposal[] = []
+  if (isAdequacy) {
+    try {
+      const parsed = JSON.parse(report.raw_analysis!.slice(ADEQUACY_RAW_PREFIX.length))
+      adequacyProposals = parsed.proposals ?? []
+    } catch { /* empty on parse error */ }
+  }
 
   const scoreColor = (report.compliance_score ?? 0) >= 70 ? '#16A34A' : (report.compliance_score ?? 0) >= 40 ? '#D97706' : '#DC2626'
   const complianceColors: Record<string, { bg: string; text: string; label: string }> = {
@@ -70,8 +89,14 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
         {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between pb-5 border-b-2 border-[#1B3A8C] mb-7">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#1B3A8C] mb-1">LF Auditoria e Consultoria</p>
-            <h1 className="text-2xl font-bold text-[#1a2a5e]">Relatório de Conformidade</h1>
+            <div className="flex items-center gap-2 mb-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="LF Consultoria" style={{ width: 32, height: 32, objectFit: 'contain' }} />
+              <p className="text-xs font-semibold uppercase tracking-widest text-[#1B3A8C]">LF Consultoria e Auditoria</p>
+            </div>
+            <h1 className="text-2xl font-bold text-[#1a2a5e]">
+              {isAdequacy ? 'Proposta de Adequação à LGPD' : 'Relatório de Conformidade'}
+            </h1>
           </div>
           <div className="text-right text-xs text-[#64748B] space-y-1">
             <p>{today}</p>
@@ -109,8 +134,49 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
           </table>
         </div>
 
+        {/* ── Adequacy proposals ─────────────────────────────────────── */}
+        {isAdequacy && (
+          <div>
+            <div className="flex items-center justify-between bg-[#EEF2FF] rounded-xl px-4 py-3 mb-7">
+              <div>
+                <p className="text-sm font-bold text-[#1B3A8C]">Propostas de Adequação à LGPD</p>
+                <p className="text-xs text-[#64748B] mt-0.5">{adequacyProposals.length} cláusula(s) identificada(s) para adequação</p>
+              </div>
+              <span className="text-xs font-bold bg-[#DBEAFE] text-[#1B3A8C] px-3 py-1 rounded-full">{adequacyProposals.length} proposta(s)</span>
+            </div>
+
+            {adequacyProposals.map((p, i) => (
+              <div key={i} className="mb-8 break-inside-avoid">
+                <div className="flex items-center gap-3 mb-3">
+                  <span style={{ width: 28, height: 28, minWidth: 28, borderRadius: '50%', background: '#1B3A8C', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{i + 1}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-[#1a2a5e]">{p.reference}</span>
+                    <span className="text-xs bg-[#EEF2FF] text-[#1B3A8C] px-2 py-0.5 rounded-full font-medium">{p.lgpd_basis}</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 10 }}>
+                  <div className="bg-[#FFF5F5] rounded-xl p-3">
+                    <p style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Texto Original</p>
+                    <p className="text-xs text-[#475569] leading-relaxed italic">{p.original}</p>
+                  </div>
+                  <div className="bg-[#F0FDF4] rounded-xl p-3">
+                    <p style={{ fontSize: 10, fontWeight: 700, color: '#16A34A', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Texto Proposto</p>
+                    <p className="text-xs text-[#475569] leading-relaxed">{p.proposed}</p>
+                  </div>
+                </div>
+
+                <div className="bg-[#FFFBEB] rounded-xl p-3">
+                  <p style={{ fontSize: 10, fontWeight: 700, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Justificativa</p>
+                  <p className="text-xs text-[#475569] leading-relaxed">{p.justification}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── Score + Summary ─────────────────────────────────────────── */}
-        <div className="flex items-center gap-8 mb-7">
+        {!isAdequacy && <div className="flex items-center gap-8 mb-7">
           <div className="flex flex-col items-center flex-shrink-0">
             <div className="relative w-24 h-24">
               <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
@@ -133,10 +199,10 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
             <h2 className="text-sm font-bold text-[#1B3A8C] mb-2 uppercase tracking-wide">Resumo Executivo</h2>
             <p className="text-sm text-[#475569] leading-relaxed">{report.summary}</p>
           </div>
-        </div>
+        </div>}
 
         {/* ── Critérios ───────────────────────────────────────────────── */}
-        {report.criteria_used && (
+        {!isAdequacy && report.criteria_used && (
           <div className="mb-7">
             <h2 className="text-sm font-bold text-[#1B3A8C] uppercase tracking-wide mb-2">Critérios Utilizados</h2>
             <p className="text-xs text-[#64748B] leading-relaxed bg-[#F8FAFC] rounded-lg p-3">{report.criteria_used}</p>
@@ -144,7 +210,7 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
         )}
 
         {/* ── Prompt Responses ────────────────────────────────────────── */}
-        {(report.prompt_responses ?? []).length > 0 && (
+        {!isAdequacy && (report.prompt_responses ?? []).length > 0 && (
           <div className="mb-7">
             <h2 className="text-sm font-bold text-[#4338CA] uppercase tracking-wide mb-3">Respostas às Instruções do Gestor</h2>
             <div className="space-y-3">
@@ -159,7 +225,7 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
         )}
 
         {/* ── Points sections ─────────────────────────────────────────── */}
-        {[
+        {!isAdequacy && [
           {
             key: 'conforming', label: 'Pontos em Conformidade',
             points: report.conforming_points ?? [],
@@ -200,7 +266,7 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
         ))}
 
         {/* ── Sugestões ───────────────────────────────────────────────── */}
-        {(report.improvement_suggestions ?? []).length > 0 && (
+        {!isAdequacy && (report.improvement_suggestions ?? []).length > 0 && (
           <div className="mb-7 break-inside-avoid">
             <div className="flex items-center gap-2 px-4 py-2.5 rounded-t-xl bg-[#EEF2FF]">
               <span className="text-sm font-bold text-[#1B3A8C]">Sugestões de Melhoria</span>
@@ -236,7 +302,7 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
         )}
 
         {/* ── Conclusão ───────────────────────────────────────────────── */}
-        {report.conclusion && (
+        {!isAdequacy && report.conclusion && (
           <div className="mb-7 break-inside-avoid">
             <h2 className="text-sm font-bold text-[#1B3A8C] uppercase tracking-wide mb-3">Conclusão da Análise</h2>
             <div className="bg-[#F8FAFC] rounded-xl p-4">
@@ -247,7 +313,11 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
 
         {/* ── Footer ──────────────────────────────────────────────────── */}
         <div className="border-t border-[#E2E8F0] pt-4 mt-8 flex items-center justify-between text-xs text-[#94A3B8]">
-          <span>LF Auditoria e Consultoria</span>
+          <div className="flex items-center gap-1.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain', opacity: 0.5 }} />
+            <span>LF Consultoria e Auditoria</span>
+          </div>
           <span>{today}</span>
         </div>
 

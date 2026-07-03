@@ -44,6 +44,24 @@ export interface AdequacyResult {
 
 export const ADEQUACY_RAW_PREFIX = '__ADEQUACY__'
 
+// Fixes literal (unescaped) newlines/tabs inside JSON string values — common when
+// Claude writes multi-line proposed text without escaping.
+function fixJsonString(raw: string): string {
+  let inString = false, escaped = false, result = ''
+  for (const char of raw) {
+    if (escaped) { result += char; escaped = false; continue }
+    if (char === '\\') { escaped = true; result += char; continue }
+    if (char === '"') { inString = !inString; result += char; continue }
+    if (inString) {
+      if (char === '\n') { result += '\\n'; continue }
+      if (char === '\r') { result += '\\r'; continue }
+      if (char === '\t') { result += '\\t'; continue }
+    }
+    result += char
+  }
+  return result
+}
+
 function buildAdequacySystemPrompt(
   referenceDocs: ReferenceDocument[],
   referenceLinks: AnalysisReferenceLink[] = [],
@@ -234,8 +252,12 @@ export async function analyzeDocument(
     let parsed: AdequacyResult
     try {
       parsed = JSON.parse(jsonMatch[0])
-    } catch (parseErr) {
-      throw new Error(`Erro ao interpretar a resposta da IA: ${parseErr instanceof Error ? parseErr.message : 'JSON inválido'}`)
+    } catch {
+      try {
+        parsed = JSON.parse(fixJsonString(jsonMatch[0]))
+      } catch (parseErr) {
+        throw new Error(`Erro ao interpretar a resposta da IA: ${parseErr instanceof Error ? parseErr.message : 'JSON inválido'}`)
+      }
     }
 
     return {
