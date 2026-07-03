@@ -146,9 +146,9 @@ function buildSystemPrompt(
 
   let oeaFocusSection = ''
   if (oeaItem && oeaCriteria) {
-    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name} / Item ${oeaItem.item_number}\n**Requisito específico a avaliar:**\n${oeaItem.description}\n\nAnalise o documento com foco neste requisito específico do OEA (IN RFB Nº 2.154). Avalie se o documento comprova, demonstra ou está em conformidade com este item em particular.\n`
+    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name} / Item ${oeaItem.item_number}\n**Requisito específico a avaliar:**\n${oeaItem.description}\n\nAnalise o documento com foco neste requisito específico do OEA (IN RFB Nº 2.318). Avalie se o documento comprova, demonstra ou está em conformidade com este item em particular.\n`
   } else if (oeaCriteria) {
-    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name}\n**Descrição do critério:**\n${oeaCriteria.description ?? ''}\n\nAnalise o documento com foco nos requisitos deste critério do OEA (IN RFB Nº 2.154).\n`
+    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name}\n**Descrição do critério:**\n${oeaCriteria.description ?? ''}\n\nAnalise o documento com foco nos requisitos deste critério do OEA (IN RFB Nº 2.318).\n`
   }
 
   const restrictionSection = restrictToContext
