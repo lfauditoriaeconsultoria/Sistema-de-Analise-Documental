@@ -324,7 +324,13 @@ export async function analyzeDocument(
     throw new Error('A IA não retornou um JSON válido na análise.')
   }
 
-  const parsed = JSON.parse(jsonMatch[0])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let parsed: any
+  try {
+    parsed = JSON.parse(jsonMatch[0])
+  } catch {
+    parsed = JSON.parse(fixJsonString(jsonMatch[0]))
+  }
 
   return {
     overall_compliance: parsed.overall_compliance ?? 'nao_conforme',

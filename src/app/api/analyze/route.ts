@@ -6,6 +6,8 @@ import { extractTextFromFile } from '@/lib/document-parser'
 import { fetchUrlContent } from '@/lib/fetch-url-content'
 import { Theme, Subtopic, ReferenceDocument, OeaCriteria, OeaItem } from '@/types'
 
+export const maxDuration = 60
+
 function buildSupabase(token?: string) {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,9 +45,9 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Arquivo e tema são obrigatórios' }, { status: 400 })
     }
 
-    const maxSize = 25 * 1024 * 1024
+    const maxSize = 4 * 1024 * 1024
     if (file.size > maxSize) {
-      return Response.json({ error: 'Arquivo muito grande (máx. 25MB)' }, { status: 400 })
+      return Response.json({ error: 'Arquivo muito grande. O limite é 4MB. Reduza o tamanho do PDF ou divida o documento.' }, { status: 413 })
     }
 
     const activeRefDocIds: string[] = activeRefDocIdsRaw ? JSON.parse(activeRefDocIdsRaw) : []

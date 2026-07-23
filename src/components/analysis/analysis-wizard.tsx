@@ -217,7 +217,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       'image/webp': ['.webp'],
     },
     maxFiles: 1,
-    maxSize: 25 * 1024 * 1024,
+    maxSize: 4 * 1024 * 1024,
   })
 
   function canProceed(fromStep: Step): boolean {
@@ -272,6 +272,10 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
         body: formData,
       })
 
+      if (res.status === 413) throw new Error('Arquivo muito grande. O limite é 4MB. Reduza o tamanho do PDF ou divida o documento.')
+      if (!res.headers.get('content-type')?.includes('application/json')) {
+        throw new Error(`Erro no servidor (${res.status}). Tente novamente ou use um arquivo menor.`)
+      }
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Erro na análise')
 
@@ -1199,7 +1203,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                       <p className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">
                         {isDragActive ? 'Solte o arquivo aqui' : 'Arraste o arquivo ou clique para selecionar'}
                       </p>
-                      <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-1">PDF, DOCX, TXT, CSV, JPG, PNG, WEBP — máx. 25MB</p>
+                      <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mt-1">PDF, DOCX, TXT, CSV, JPG, PNG, WEBP — máx. 4MB</p>
                     </div>
                     <Button type="button" variant="secondary" size="sm">Selecionar arquivo</Button>
                   </div>
