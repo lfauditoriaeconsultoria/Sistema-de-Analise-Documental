@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { ReportViewer } from '@/components/analysis/report-viewer'
+import { AnalysisProcessing } from '@/components/analysis/analysis-processing'
 import { Analysis, Report } from '@/types'
 
 export default async function AnalysisPage(props: { params: Promise<{ id: string }> }) {
@@ -22,6 +23,16 @@ export default async function AnalysisPage(props: { params: Promise<{ id: string
   if (error || !data) notFound()
 
   const analysis = data as Analysis & { report: Report[] | null }
+
+  if (analysis.status === 'processing') {
+    return (
+      <AnalysisProcessing
+        analysisId={id}
+        documentName={analysis.document_name ?? 'documento'}
+      />
+    )
+  }
+
   const report = Array.isArray(analysis.report) ? analysis.report[0] : analysis.report
 
   return <ReportViewer analysis={analysis} report={report ?? null} />
