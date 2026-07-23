@@ -57,16 +57,33 @@ export async function POST(req: NextRequest) {
     const sessionLinksInput: Array<{ name: string; url: string; content: string | null }> = sessionLinksRaw ? JSON.parse(sessionLinksRaw) : []
     const selectedOeaCriteriaId = formData.get('selectedOeaCriteriaId') as string | null
     const selectedOeaItemId = formData.get('selectedOeaItemId') as string | null
+    const selectedOeaCriteriaIdsRaw = formData.get('selectedOeaCriteriaIds') as string | null
+    const selectedOeaCriteriaIds: string[] = selectedOeaCriteriaIdsRaw ? JSON.parse(selectedOeaCriteriaIdsRaw) : []
     const useExternalKnowledgeRaw = formData.get('useExternalKnowledge') as string | null
     const restrictToContext = useExternalKnowledgeRaw === 'false'
     const workType = (formData.get('workType') as string | null ?? 'report') as 'report' | 'adequacy'
 
+    // Resolve the primary criteria ID: either from multi-select (single entry) or legacy single field
+    const primaryCriteriaId = selectedOeaCriteriaIds.length === 1
+      ? selectedOeaCriteriaIds[0]
+      : selectedOeaCriteriaIds.length === 0 ? selectedOeaCriteriaId : null
+
     const [{ data: theme }, { data: subtopic }, { data: oeaCriteriaData }, { data: oeaItemData }] = await Promise.all([
       admin.from('themes').select('*').eq('id', themeId).single(),
       subtopicId ? admin.from('subtopics').select('*').eq('id', subtopicId).single() : Promise.resolve({ data: null }),
-      selectedOeaCriteriaId ? admin.from('oea_criteria').select('*').eq('id', selectedOeaCriteriaId).single() : Promise.resolve({ data: null }),
+      primaryCriteriaId ? admin.from('oea_criteria').select('*, items:oea_items(*)').eq('id', primaryCriteriaId).single() : Promise.resolve({ data: null }),
       selectedOeaItemId ? admin.from('oea_items').select('*').eq('id', selectedOeaItemId).single() : Promise.resolve({ data: null }),
     ])
+
+    // For multiple criteria: fetch all selected OeaCriteria objects
+    let oeaCriteriaListData: OeaCriteria[] | undefined
+    if (selectedOeaCriteriaIds.length > 1) {
+      const { data: multiCriteria } = await admin
+        .from('oea_criteria')
+        .select('*, items:oea_items(*)')
+        .in('id', selectedOeaCriteriaIds)
+      oeaCriteriaListData = (multiCriteria ?? []) as OeaCriteria[]
+    }
 
     if (!theme) {
       return Response.json({ error: 'Tema não encontrado' }, { status: 404 })
@@ -98,8 +115,14 @@ export async function POST(req: NextRequest) {
     } else {
       refQuery = refQuery.eq('theme_id', themeId)
       if (subtopicId) refQuery = refQuery.or(`subtopic_id.eq.${subtopicId},subtopic_id.is.null`)
-      if (selectedOeaItemId) refQuery = refQuery.or(`oea_item_id.eq.${selectedOeaItemId},oea_item_id.is.null`)
-      else if (selectedOeaCriteriaId) refQuery = refQuery.or(`oea_criteria_id.eq.${selectedOeaCriteriaId},oea_criteria_id.is.null`)
+      if (selectedOeaItemId) {
+        refQuery = refQuery.or(`oea_item_id.eq.${selectedOeaItemId},oea_item_id.is.null`)
+      } else if (selectedOeaCriteriaIds.length > 1) {
+        const criteriaFilter = selectedOeaCriteriaIds.map(id => `oea_criteria_id.eq.${id}`).join(',')
+        refQuery = refQuery.or(`${criteriaFilter},oea_criteria_id.is.null`)
+      } else if (primaryCriteriaId) {
+        refQuery = refQuery.or(`oea_criteria_id.eq.${primaryCriteriaId},oea_criteria_id.is.null`)
+      }
     }
     const { data: dbDocs } = await refQuery
 
@@ -212,6 +235,7 @@ export async function POST(req: NextRequest) {
           restrictToContext,
           referenceLinks,
           workType,
+          oeaCriteriaListData,
         )
 
         const reportPayload: Record<string, unknown> = {

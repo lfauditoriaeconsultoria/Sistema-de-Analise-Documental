@@ -29,6 +29,7 @@ interface RefDocItem {
   name: string
   description: string | null
   file_type: string | null
+  oea_criteria_id: string | null
   active: boolean
 }
 
@@ -58,6 +59,32 @@ interface SessionLink {
   isRegistered: boolean
 }
 
+function RefDocRow({ doc, onChange }: { doc: RefDocItem; onChange: React.Dispatch<React.SetStateAction<RefDocItem[]>> }) {
+  return (
+    <label className={cn(
+      'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all',
+      doc.active
+        ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
+        : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#FAFAFA] dark:bg-[#080f2a] opacity-60'
+    )}>
+      <input
+        type="checkbox"
+        checked={doc.active}
+        onChange={e => onChange(prev => prev.map(d => d.id === doc.id ? { ...d, active: e.target.checked } : d))}
+        className="w-4 h-4 accent-[#1B3A8C] flex-shrink-0"
+      />
+      <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#0f1d42] flex items-center justify-center flex-shrink-0 border border-[#E2E8F0] dark:border-[#1e3570]">
+        <FileText size={14} className="text-[#1B3A8C] dark:text-blue-400" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] truncate">{doc.name}</p>
+        {doc.description && <p className="text-xs text-[#64748B] dark:text-[#94a3b8] truncate">{doc.description}</p>}
+      </div>
+      {doc.file_type && <span className="text-xs text-[#94A3B8] flex-shrink-0">{doc.file_type.toUpperCase()}</span>}
+    </label>
+  )
+}
+
 const THEME_ICONS: Record<string, React.ReactNode> = {
   OEA: <Shield size={22} />,
   LGPD: <Lock size={22} />,
@@ -83,8 +110,12 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
   const [customSubtopicName, setCustomSubtopicName] = useState('')
   const [oeaCriteriaList, setOeaCriteriaList] = useState<OeaCriteria[]>([])
   const [loadingOeaCriteria, setLoadingOeaCriteria] = useState(false)
-  const [selectedOeaCriteria, setSelectedOeaCriteria] = useState<OeaCriteria | null>(null)
+  const [selectedOeaCriteriaIds, setSelectedOeaCriteriaIds] = useState<string[]>([])
   const [selectedOeaItem, setSelectedOeaItem] = useState<OeaItem | null>(null)
+
+  // Derived helpers
+  const selectedOeaCriteriaList = oeaCriteriaList.filter(c => selectedOeaCriteriaIds.includes(c.id))
+  const singleSelectedCriteria = selectedOeaCriteriaList.length === 1 ? selectedOeaCriteriaList[0] : null
 
   // Step 3
   const [kbTab, setKbTab] = useState<'docs' | 'prompts' | 'links'>('docs')
@@ -154,8 +185,13 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
     try {
       const params = new URLSearchParams({ themeId: selectedTheme!.id })
       if (selectedSubtopic) params.set('subtopicId', selectedSubtopic.id)
-      if (selectedOeaItem) params.set('oeaItemId', selectedOeaItem.id)
-      else if (selectedOeaCriteria) params.set('oeaCriteriaId', selectedOeaCriteria.id)
+      if (selectedOeaItem && singleSelectedCriteria) {
+        params.set('oeaItemId', selectedOeaItem.id)
+      } else if (selectedOeaCriteriaIds.length > 1) {
+        params.set('oeaCriteriaIds', selectedOeaCriteriaIds.join(','))
+      } else if (singleSelectedCriteria) {
+        params.set('oeaCriteriaId', singleSelectedCriteria.id)
+      }
 
       const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
@@ -239,8 +275,9 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       if (isOthersTheme && customThemeName) formData.append('customThemeName', customThemeName)
       if (isCustomSubtopic && customSubtopicName) formData.append('customSubtopicName', customSubtopicName)
       if (clientName) formData.append('clientName', clientName)
-      if (selectedOeaCriteria) formData.append('selectedOeaCriteriaId', selectedOeaCriteria.id)
-      if (selectedOeaItem) formData.append('selectedOeaItemId', selectedOeaItem.id)
+      formData.append('selectedOeaCriteriaIds', JSON.stringify(selectedOeaCriteriaIds))
+      if (singleSelectedCriteria) formData.append('selectedOeaCriteriaId', singleSelectedCriteria.id)
+      if (selectedOeaItem && singleSelectedCriteria) formData.append('selectedOeaItemId', selectedOeaItem.id)
 
       formData.append('useExternalKnowledge', String(useExternalKnowledge))
       formData.append('workType', isLgpdTheme ? workType : 'report')
@@ -411,7 +448,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             {themes.map(theme => (
               <button
                 key={theme.id}
-                onClick={() => { setSelectedTheme(theme); setSelectedSubtopic(null); setIsCustomSubtopic(false); setCustomThemeName(''); setSelectedOeaCriteria(null); setSelectedOeaItem(null) }}
+                onClick={() => { setSelectedTheme(theme); setSelectedSubtopic(null); setIsCustomSubtopic(false); setCustomThemeName(''); setSelectedOeaCriteriaIds([]); setSelectedOeaItem(null) }}
                 className={cn(
                   'flex flex-col items-center gap-3 p-5 rounded-xl border-2 text-center transition-all',
                   selectedTheme?.id === theme.id
@@ -472,8 +509,8 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             </div>
             {selectedTheme?.name === 'OEA' ? (
               <>
-                <h2 className="text-xl font-bold text-[#1a2a5e] dark:text-[#e2e8f0]">Selecione o critério</h2>
-                <p className="text-[#64748B] dark:text-[#94a3b8] text-sm mt-1">Qual critério OEA será analisado? (opcional)</p>
+                <h2 className="text-xl font-bold text-[#1a2a5e] dark:text-[#e2e8f0]">Selecione os critérios</h2>
+                <p className="text-[#64748B] dark:text-[#94a3b8] text-sm mt-1">Pode selecionar mais de um critério OEA. (opcional)</p>
               </>
             ) : (
               <>
@@ -492,6 +529,20 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
               </div>
             ) : (
               <div>
+                {selectedOeaCriteriaIds.length > 0 && (
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#1B3A8C] dark:text-blue-400">
+                      {selectedOeaCriteriaIds.length} critério(s) selecionado(s)
+                    </span>
+                    <button
+                      onClick={() => { setSelectedOeaCriteriaIds([]); setSelectedOeaItem(null) }}
+                      className="text-xs text-[#64748B] dark:text-[#94a3b8] hover:text-[#DC2626] underline"
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                )}
+
                 <div className="max-h-72 overflow-y-auto pr-1">
                   {(['geral', 'seguranca', 'conformidade'] as const).map(cat => {
                     const criteria = oeaCriteriaList.filter(c => c.category === cat)
@@ -501,50 +552,53 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                       <div key={cat}>
                         <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide px-1 pt-3 pb-1.5">{catLabel}</p>
                         <div className="space-y-1">
-                          {criteria.map(criterion => (
-                            <button
-                              key={criterion.id}
-                              onClick={() => {
-                                if (selectedOeaCriteria?.id === criterion.id) {
-                                  setSelectedOeaCriteria(null)
-                                  setSelectedOeaItem(null)
-                                } else {
-                                  setSelectedOeaCriteria(criterion)
-                                  setSelectedOeaItem(null)
-                                }
-                              }}
-                              className={cn(
-                                'w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all',
-                                selectedOeaCriteria?.id === criterion.id
-                                  ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/50'
-                                  : 'border-[#E2E8F0] dark:border-[#1e3570] hover:border-[#1B3A8C] hover:bg-[#F8FAFC] dark:hover:bg-[#1e3570]/30'
-                              )}
-                            >
-                              <div className={cn(
-                                'w-2 h-2 rounded-full flex-shrink-0',
-                                selectedOeaCriteria?.id === criterion.id ? 'bg-[#1B3A8C]' : 'bg-[#CBD5E1] dark:bg-[#1e3570]'
-                              )} />
-                              <span className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">{criterion.number}. {criterion.name}</span>
-                              {selectedOeaCriteria?.id === criterion.id && (
-                                <CheckCircle size={14} className="text-[#1B3A8C] dark:text-blue-400 ml-auto flex-shrink-0" />
-                              )}
-                            </button>
-                          ))}
+                          {criteria.map(criterion => {
+                            const isSelected = selectedOeaCriteriaIds.includes(criterion.id)
+                            return (
+                              <button
+                                key={criterion.id}
+                                onClick={() => {
+                                  setSelectedOeaCriteriaIds(prev =>
+                                    prev.includes(criterion.id)
+                                      ? prev.filter(id => id !== criterion.id)
+                                      : [...prev, criterion.id]
+                                  )
+                                  if (isSelected) setSelectedOeaItem(null)
+                                }}
+                                className={cn(
+                                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all',
+                                  isSelected
+                                    ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/50'
+                                    : 'border-[#E2E8F0] dark:border-[#1e3570] hover:border-[#1B3A8C] hover:bg-[#F8FAFC] dark:hover:bg-[#1e3570]/30'
+                                )}
+                              >
+                                <div className={cn(
+                                  'w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                                  isSelected
+                                    ? 'bg-[#1B3A8C] border-[#1B3A8C]'
+                                    : 'bg-white dark:bg-[#0a1530] border-[#CBD5E1] dark:border-[#1e3570]'
+                                )}>
+                                  {isSelected && <Check size={10} className="text-white" />}
+                                </div>
+                                <span className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0]">{criterion.number}. {criterion.name}</span>
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     )
                   })}
                 </div>
 
-                {/* Items sub-selection */}
-                {selectedOeaCriteria && (
+                {/* Items sub-selection: only when exactly 1 criteria selected */}
+                {singleSelectedCriteria && (
                   <div className="mt-4 p-4 rounded-xl bg-[#F8FAFC] dark:bg-[#0a1530] border border-[#E2E8F0] dark:border-[#1e3570]">
                     <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0] mb-0.5">
-                      Item/Subitem <span className="font-normal text-[#64748B] dark:text-[#94a3b8]">(opcional)</span>
+                      Item/Subitem do Critério {singleSelectedCriteria.number} <span className="font-normal text-[#64748B] dark:text-[#94a3b8]">(opcional)</span>
                     </p>
                     <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mb-3">Especifique um requisito para focar a análise</p>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                      {(selectedOeaCriteria.items ?? []).map(item => (
+                      {(singleSelectedCriteria.items ?? []).map(item => (
                         <button
                           key={item.id}
                           onClick={() => setSelectedOeaItem(prev => prev?.id === item.id ? null : item)}
@@ -568,12 +622,6 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                         </button>
                       ))}
                     </div>
-                    <button
-                      onClick={() => { setSelectedOeaCriteria(null); setSelectedOeaItem(null) }}
-                      className="text-xs text-[#64748B] dark:text-[#94a3b8] hover:text-[#DC2626] underline mt-3"
-                    >
-                      Limpar seleção
-                    </button>
                   </div>
                 )}
               </div>
@@ -660,7 +708,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             </Button>
             <Button onClick={() => setStep(3)} disabled={!canProceed(2)}>
               {selectedTheme?.name === 'OEA'
-                ? (!selectedOeaCriteria ? 'Pular' : 'Próximo')
+                ? (selectedOeaCriteriaIds.length === 0 ? 'Pular' : 'Próximo')
                 : (!selectedSubtopic && !isCustomSubtopic && !customSubtopicName ? 'Pular' : 'Próximo')
               } <ChevronRight size={16} />
             </Button>
@@ -759,35 +807,30 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                     </div>
                   )}
 
-                  {/* Admin default docs — toggle only, no delete */}
-                  {refDocs.map(doc => (
-                    <label
-                      key={doc.id}
-                      className={cn(
-                        'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all',
-                        doc.active
-                          ? 'border-[#1B3A8C] bg-[#EEF2FF] dark:bg-[#1e3570]/40'
-                          : 'border-[#E2E8F0] dark:border-[#1e3570] bg-[#FAFAFA] dark:bg-[#080f2a] opacity-60'
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={doc.active}
-                        onChange={e => setRefDocs(prev => prev.map(d => d.id === doc.id ? { ...d, active: e.target.checked } : d))}
-                        className="w-4 h-4 accent-[#1B3A8C] flex-shrink-0"
-                      />
-                      <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#0f1d42] flex items-center justify-center flex-shrink-0 border border-[#E2E8F0] dark:border-[#1e3570]">
-                        <FileText size={14} className="text-[#1B3A8C] dark:text-blue-400" />
+                  {/* Admin default docs — grouped by criteria when multiple selected */}
+                  {(() => {
+                    const showGrouped = selectedOeaCriteriaIds.length > 1
+                    if (!showGrouped) {
+                      return refDocs.map(doc => <RefDocRow key={doc.id} doc={doc} onChange={setRefDocs} />)
+                    }
+                    // Build groups: one per selected criteria + one "Geral" for unassigned docs
+                    const groups: Array<{ label: string; docs: RefDocItem[] }> = selectedOeaCriteriaList.map(c => ({
+                      label: `Critério ${c.number} — ${c.name}`,
+                      docs: refDocs.filter(d => d.oea_criteria_id === c.id),
+                    }))
+                    const generalDocs = refDocs.filter(d => !d.oea_criteria_id)
+                    if (generalDocs.length > 0) groups.push({ label: 'Documentos Gerais', docs: generalDocs })
+                    return groups.map(group => group.docs.length === 0 ? null : (
+                      <div key={group.label}>
+                        <p className="text-xs font-semibold text-[#1B3A8C] dark:text-blue-400 uppercase tracking-wide px-1 pt-3 pb-1.5 border-t border-[#E2E8F0] dark:border-[#1e3570] first:border-t-0 first:pt-0">
+                          {group.label}
+                        </p>
+                        <div className="space-y-2">
+                          {group.docs.map(doc => <RefDocRow key={doc.id} doc={doc} onChange={setRefDocs} />)}
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-[#1a2a5e] dark:text-[#e2e8f0] truncate">{doc.name}</p>
-                        {doc.description && <p className="text-xs text-[#64748B] dark:text-[#94a3b8] truncate">{doc.description}</p>}
-                      </div>
-                      {doc.file_type && (
-                        <span className="text-xs text-[#94A3B8] flex-shrink-0">{doc.file_type.toUpperCase()}</span>
-                      )}
-                    </label>
-                  ))}
+                    ))
+                  })()}
 
                   {/* Session docs added by user — toggle + delete */}
                   {sessionDocs.map(doc => (
@@ -1296,10 +1339,12 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                   <> · Subtema: <span className="font-medium">{isCustomSubtopic ? customSubtopicName : selectedSubtopic?.name}</span></>
                 )}
               </p>
-              {(selectedOeaCriteria || selectedOeaItem) && (
+              {selectedOeaCriteriaIds.length > 0 && (
                 <p>
-                  OEA: <span className="font-medium">Critério {selectedOeaCriteria?.number} - {selectedOeaCriteria?.name}</span>
-                  {selectedOeaItem && <> · Item <span className="font-medium">{selectedOeaItem.item_number}</span></>}
+                  OEA: <span className="font-medium">
+                    {selectedOeaCriteriaList.map(c => `Critério ${c.number}`).join(', ')}
+                  </span>
+                  {selectedOeaItem && singleSelectedCriteria && <> · Item <span className="font-medium">{selectedOeaItem.item_number}</span></>}
                 </p>
               )}
               <p>

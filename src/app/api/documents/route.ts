@@ -26,6 +26,9 @@ export async function GET(req: NextRequest) {
     const subtopicId = req.nextUrl.searchParams.get('subtopicId')
     const oeaItemId = req.nextUrl.searchParams.get('oeaItemId')
     const oeaCriteriaId = req.nextUrl.searchParams.get('oeaCriteriaId')
+    // oeaCriteriaIds is a comma-separated list for multi-select support
+    const oeaCriteriaIdsRaw = req.nextUrl.searchParams.get('oeaCriteriaIds')
+    const oeaCriteriaIds = oeaCriteriaIdsRaw ? oeaCriteriaIdsRaw.split(',').filter(Boolean) : []
     const admin = createAdminClient()
 
     let query = admin
@@ -41,6 +44,10 @@ export async function GET(req: NextRequest) {
     }
     if (oeaItemId) {
       query = query.or(`oea_item_id.eq.${oeaItemId},oea_item_id.is.null`)
+    } else if (oeaCriteriaIds.length > 0) {
+      // Multiple criteria: include docs for any of the selected criteria + docs with no criteria
+      const criteriaFilter = oeaCriteriaIds.map(id => `oea_criteria_id.eq.${id}`).join(',')
+      query = query.or(`${criteriaFilter},oea_criteria_id.is.null`)
     } else if (oeaCriteriaId) {
       query = query.or(`oea_criteria_id.eq.${oeaCriteriaId},oea_criteria_id.is.null`)
     }
