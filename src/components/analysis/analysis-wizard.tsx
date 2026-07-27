@@ -316,7 +316,6 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Erro na análise')
 
-      toast({ type: 'success', title: 'Análise concluída!', description: 'O relatório foi gerado com sucesso.' })
       router.push(`/analysis/${json.analysisId}`)
     } catch (err: unknown) {
       toast({ type: 'error', title: 'Erro na análise', description: err instanceof Error ? err.message : 'Tente novamente.' })

@@ -37,7 +37,7 @@ export function AnalysisProcessing({ analysisId, documentName }: Props) {
         if (!res.ok) return
         const json = await res.json()
         if (json.status === 'completed') {
-          router.refresh()
+          window.location.reload()
         } else if (json.status === 'failed') {
           setErrorMessage(json.errorMessage ?? 'Erro desconhecido na análise.')
           setPollingActive(false)
