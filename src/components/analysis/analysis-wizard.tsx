@@ -110,12 +110,11 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
   const [customSubtopicName, setCustomSubtopicName] = useState('')
   const [oeaCriteriaList, setOeaCriteriaList] = useState<OeaCriteria[]>([])
   const [loadingOeaCriteria, setLoadingOeaCriteria] = useState(false)
-  const [selectedOeaCriteriaIds, setSelectedOeaCriteriaIds] = useState<string[]>([])
+  const [selectedOeaCriteriaId, setSelectedOeaCriteriaId] = useState<string | null>(null)
   const [selectedOeaItem, setSelectedOeaItem] = useState<OeaItem | null>(null)
 
   // Derived helpers
-  const selectedOeaCriteriaList = oeaCriteriaList.filter(c => selectedOeaCriteriaIds.includes(c.id))
-  const singleSelectedCriteria = selectedOeaCriteriaList.length === 1 ? selectedOeaCriteriaList[0] : null
+  const selectedOeaCriteria = oeaCriteriaList.find(c => c.id === selectedOeaCriteriaId) ?? null
 
   // Step 3
   const [kbTab, setKbTab] = useState<'docs' | 'prompts' | 'links'>('docs')
@@ -185,12 +184,10 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
     try {
       const params = new URLSearchParams({ themeId: selectedTheme!.id })
       if (selectedSubtopic) params.set('subtopicId', selectedSubtopic.id)
-      if (selectedOeaItem && singleSelectedCriteria) {
+      if (selectedOeaItem && selectedOeaCriteriaId) {
         params.set('oeaItemId', selectedOeaItem.id)
-      } else if (selectedOeaCriteriaIds.length > 1) {
-        params.set('oeaCriteriaIds', selectedOeaCriteriaIds.join(','))
-      } else if (singleSelectedCriteria) {
-        params.set('oeaCriteriaId', singleSelectedCriteria.id)
+      } else if (selectedOeaCriteriaId) {
+        params.set('oeaCriteriaId', selectedOeaCriteriaId)
       }
 
       const supabase = createClient()
@@ -275,9 +272,8 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
       if (isOthersTheme && customThemeName) formData.append('customThemeName', customThemeName)
       if (isCustomSubtopic && customSubtopicName) formData.append('customSubtopicName', customSubtopicName)
       if (clientName) formData.append('clientName', clientName)
-      formData.append('selectedOeaCriteriaIds', JSON.stringify(selectedOeaCriteriaIds))
-      if (singleSelectedCriteria) formData.append('selectedOeaCriteriaId', singleSelectedCriteria.id)
-      if (selectedOeaItem && singleSelectedCriteria) formData.append('selectedOeaItemId', selectedOeaItem.id)
+      if (selectedOeaCriteriaId) formData.append('selectedOeaCriteriaId', selectedOeaCriteriaId)
+      if (selectedOeaItem && selectedOeaCriteriaId) formData.append('selectedOeaItemId', selectedOeaItem.id)
 
       formData.append('useExternalKnowledge', String(useExternalKnowledge))
       formData.append('workType', isLgpdTheme ? workType : 'report')
@@ -447,7 +443,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             {themes.map(theme => (
               <button
                 key={theme.id}
-                onClick={() => { setSelectedTheme(theme); setSelectedSubtopic(null); setIsCustomSubtopic(false); setCustomThemeName(''); setSelectedOeaCriteriaIds([]); setSelectedOeaItem(null) }}
+                onClick={() => { setSelectedTheme(theme); setSelectedSubtopic(null); setIsCustomSubtopic(false); setCustomThemeName(''); setSelectedOeaCriteriaId(null); setSelectedOeaItem(null) }}
                 className={cn(
                   'flex flex-col items-center gap-3 p-5 rounded-xl border-2 text-center transition-all',
                   selectedTheme?.id === theme.id
@@ -509,7 +505,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             {selectedTheme?.name === 'OEA' ? (
               <>
                 <h2 className="text-xl font-bold text-[#1a2a5e] dark:text-[#e2e8f0]">Selecione os critérios</h2>
-                <p className="text-[#64748B] dark:text-[#94a3b8] text-sm mt-1">Pode selecionar mais de um critério OEA. (opcional)</p>
+                <p className="text-[#64748B] dark:text-[#94a3b8] text-sm mt-1">Selecione o critério OEA para focar a análise. (opcional)</p>
               </>
             ) : (
               <>
@@ -528,20 +524,6 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
               </div>
             ) : (
               <div>
-                {selectedOeaCriteriaIds.length > 0 && (
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#1B3A8C] dark:text-blue-400">
-                      {selectedOeaCriteriaIds.length} critério(s) selecionado(s)
-                    </span>
-                    <button
-                      onClick={() => { setSelectedOeaCriteriaIds([]); setSelectedOeaItem(null) }}
-                      className="text-xs text-[#64748B] dark:text-[#94a3b8] hover:text-[#DC2626] underline"
-                    >
-                      Limpar seleção
-                    </button>
-                  </div>
-                )}
-
                 <div className="max-h-72 overflow-y-auto pr-1">
                   {(['geral', 'seguranca', 'conformidade'] as const).map(cat => {
                     const criteria = oeaCriteriaList.filter(c => c.category === cat)
@@ -552,17 +534,18 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                         <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide px-1 pt-3 pb-1.5">{catLabel}</p>
                         <div className="space-y-1">
                           {criteria.map(criterion => {
-                            const isSelected = selectedOeaCriteriaIds.includes(criterion.id)
+                            const isSelected = selectedOeaCriteriaId === criterion.id
                             return (
                               <button
                                 key={criterion.id}
                                 onClick={() => {
-                                  setSelectedOeaCriteriaIds(prev =>
-                                    prev.includes(criterion.id)
-                                      ? prev.filter(id => id !== criterion.id)
-                                      : [...prev, criterion.id]
-                                  )
-                                  if (isSelected) setSelectedOeaItem(null)
+                                  if (isSelected) {
+                                    setSelectedOeaCriteriaId(null)
+                                    setSelectedOeaItem(null)
+                                  } else {
+                                    setSelectedOeaCriteriaId(criterion.id)
+                                    setSelectedOeaItem(null)
+                                  }
                                 }}
                                 className={cn(
                                   'w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all',
@@ -589,15 +572,15 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                   })}
                 </div>
 
-                {/* Items sub-selection: only when exactly 1 criteria selected */}
-                {singleSelectedCriteria && (
+                {/* Items sub-selection */}
+                {selectedOeaCriteria && (
                   <div className="mt-4 p-4 rounded-xl bg-[#F8FAFC] dark:bg-[#0a1530] border border-[#E2E8F0] dark:border-[#1e3570]">
                     <p className="text-sm font-semibold text-[#1a2a5e] dark:text-[#e2e8f0] mb-0.5">
-                      Item/Subitem do Critério {singleSelectedCriteria.number} <span className="font-normal text-[#64748B] dark:text-[#94a3b8]">(opcional)</span>
+                      Item/Subitem do Critério {selectedOeaCriteria.number} <span className="font-normal text-[#64748B] dark:text-[#94a3b8]">(opcional)</span>
                     </p>
                     <p className="text-xs text-[#64748B] dark:text-[#94a3b8] mb-3">Especifique um requisito para focar a análise</p>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                      {(singleSelectedCriteria.items ?? []).map(item => (
+                      {(selectedOeaCriteria.items ?? []).map(item => (
                         <button
                           key={item.id}
                           onClick={() => setSelectedOeaItem(prev => prev?.id === item.id ? null : item)}
@@ -707,7 +690,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
             </Button>
             <Button onClick={() => setStep(3)} disabled={!canProceed(2)}>
               {selectedTheme?.name === 'OEA'
-                ? (selectedOeaCriteriaIds.length === 0 ? 'Pular' : 'Próximo')
+                ? (!selectedOeaCriteriaId ? 'Pular' : 'Próximo')
                 : (!selectedSubtopic && !isCustomSubtopic && !customSubtopicName ? 'Pular' : 'Próximo')
               } <ChevronRight size={16} />
             </Button>
@@ -806,30 +789,7 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                     </div>
                   )}
 
-                  {/* Admin default docs — grouped by criteria when multiple selected */}
-                  {(() => {
-                    const showGrouped = selectedOeaCriteriaIds.length > 1
-                    if (!showGrouped) {
-                      return refDocs.map(doc => <RefDocRow key={doc.id} doc={doc} onChange={setRefDocs} />)
-                    }
-                    // Build groups: one per selected criteria + one "Geral" for unassigned docs
-                    const groups: Array<{ label: string; docs: RefDocItem[] }> = selectedOeaCriteriaList.map(c => ({
-                      label: `Critério ${c.number} — ${c.name}`,
-                      docs: refDocs.filter(d => d.oea_criteria_id === c.id),
-                    }))
-                    const generalDocs = refDocs.filter(d => !d.oea_criteria_id)
-                    if (generalDocs.length > 0) groups.push({ label: 'Documentos Gerais', docs: generalDocs })
-                    return groups.map(group => group.docs.length === 0 ? null : (
-                      <div key={group.label}>
-                        <p className="text-xs font-semibold text-[#1B3A8C] dark:text-blue-400 uppercase tracking-wide px-1 pt-3 pb-1.5 border-t border-[#E2E8F0] dark:border-[#1e3570] first:border-t-0 first:pt-0">
-                          {group.label}
-                        </p>
-                        <div className="space-y-2">
-                          {group.docs.map(doc => <RefDocRow key={doc.id} doc={doc} onChange={setRefDocs} />)}
-                        </div>
-                      </div>
-                    ))
-                  })()}
+                  {refDocs.map(doc => <RefDocRow key={doc.id} doc={doc} onChange={setRefDocs} />)}
 
                   {/* Session docs added by user — toggle + delete */}
                   {sessionDocs.map(doc => (
@@ -1338,12 +1298,10 @@ export function NewAnalysisWizard({ themes, subtopics }: Props) {
                   <> · Subtema: <span className="font-medium">{isCustomSubtopic ? customSubtopicName : selectedSubtopic?.name}</span></>
                 )}
               </p>
-              {selectedOeaCriteriaIds.length > 0 && (
+              {selectedOeaCriteria && (
                 <p>
-                  OEA: <span className="font-medium">
-                    {selectedOeaCriteriaList.map(c => `Critério ${c.number}`).join(', ')}
-                  </span>
-                  {selectedOeaItem && singleSelectedCriteria && <> · Item <span className="font-medium">{selectedOeaItem.item_number}</span></>}
+                  OEA: <span className="font-medium">Critério {selectedOeaCriteria.number}</span>
+                  {selectedOeaItem && <> · Item <span className="font-medium">{selectedOeaItem.item_number}</span></>}
                 </p>
               )}
               <p>

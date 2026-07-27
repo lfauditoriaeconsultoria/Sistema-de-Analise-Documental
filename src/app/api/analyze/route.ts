@@ -1,4 +1,4 @@
-import { NextRequest, after } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { analyzeDocument, DocumentInput, AnalysisReferenceLink } from '@/lib/anthropic/analysis'
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
   const supabase = buildSupabase(token)
   const admin = createAdminClient()
+  let createdAnalysisId: string | null = null
 
   try {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -57,39 +58,21 @@ export async function POST(req: NextRequest) {
     const sessionLinksInput: Array<{ name: string; url: string; content: string | null }> = sessionLinksRaw ? JSON.parse(sessionLinksRaw) : []
     const selectedOeaCriteriaId = formData.get('selectedOeaCriteriaId') as string | null
     const selectedOeaItemId = formData.get('selectedOeaItemId') as string | null
-    const selectedOeaCriteriaIdsRaw = formData.get('selectedOeaCriteriaIds') as string | null
-    const selectedOeaCriteriaIds: string[] = selectedOeaCriteriaIdsRaw ? JSON.parse(selectedOeaCriteriaIdsRaw) : []
     const useExternalKnowledgeRaw = formData.get('useExternalKnowledge') as string | null
     const restrictToContext = useExternalKnowledgeRaw === 'false'
     const workType = (formData.get('workType') as string | null ?? 'report') as 'report' | 'adequacy'
 
-    // Resolve the primary criteria ID: either from multi-select (single entry) or legacy single field
-    const primaryCriteriaId = selectedOeaCriteriaIds.length === 1
-      ? selectedOeaCriteriaIds[0]
-      : selectedOeaCriteriaIds.length === 0 ? selectedOeaCriteriaId : null
-
     const [{ data: theme }, { data: subtopic }, { data: oeaCriteriaData }, { data: oeaItemData }] = await Promise.all([
       admin.from('themes').select('*').eq('id', themeId).single(),
       subtopicId ? admin.from('subtopics').select('*').eq('id', subtopicId).single() : Promise.resolve({ data: null }),
-      primaryCriteriaId ? admin.from('oea_criteria').select('*, items:oea_items(*)').eq('id', primaryCriteriaId).single() : Promise.resolve({ data: null }),
+      selectedOeaCriteriaId ? admin.from('oea_criteria').select('*, items:oea_items(*)').eq('id', selectedOeaCriteriaId).single() : Promise.resolve({ data: null }),
       selectedOeaItemId ? admin.from('oea_items').select('*').eq('id', selectedOeaItemId).single() : Promise.resolve({ data: null }),
     ])
-
-    // For multiple criteria: fetch all selected OeaCriteria objects
-    let oeaCriteriaListData: OeaCriteria[] | undefined
-    if (selectedOeaCriteriaIds.length > 1) {
-      const { data: multiCriteria } = await admin
-        .from('oea_criteria')
-        .select('*, items:oea_items(*)')
-        .in('id', selectedOeaCriteriaIds)
-      oeaCriteriaListData = (multiCriteria ?? []) as OeaCriteria[]
-    }
 
     if (!theme) {
       return Response.json({ error: 'Tema não encontrado' }, { status: 404 })
     }
 
-    // ── Extract document content (must happen before after(), needs request body) ──
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
     const imageExts = ['jpg', 'jpeg', 'png', 'webp']
     const isImage = imageExts.includes(ext)
@@ -108,20 +91,18 @@ export async function POST(req: NextRequest) {
       documentInput = { type: 'text', content }
     }
 
-    // ── Fetch reference docs ──────────────────────────────────────────────────────
     let refQuery = admin.from('reference_documents').select('*')
     if (activeRefDocIds.length > 0) {
       refQuery = refQuery.in('id', activeRefDocIds)
     } else {
       refQuery = refQuery.eq('theme_id', themeId)
-      if (subtopicId) refQuery = refQuery.or(`subtopic_id.eq.${subtopicId},subtopic_id.is.null`)
+      if (subtopicId) {
+        refQuery = refQuery.or(`subtopic_id.eq.${subtopicId},subtopic_id.is.null`)
+      }
       if (selectedOeaItemId) {
         refQuery = refQuery.or(`oea_item_id.eq.${selectedOeaItemId},oea_item_id.is.null`)
-      } else if (selectedOeaCriteriaIds.length > 1) {
-        const criteriaFilter = selectedOeaCriteriaIds.map(id => `oea_criteria_id.eq.${id}`).join(',')
-        refQuery = refQuery.or(`${criteriaFilter},oea_criteria_id.is.null`)
-      } else if (primaryCriteriaId) {
-        refQuery = refQuery.or(`oea_criteria_id.eq.${primaryCriteriaId},oea_criteria_id.is.null`)
+      } else if (selectedOeaCriteriaId) {
+        refQuery = refQuery.or(`oea_criteria_id.eq.${selectedOeaCriteriaId},oea_criteria_id.is.null`)
       }
     }
     const { data: dbDocs } = await refQuery
@@ -144,7 +125,6 @@ export async function POST(req: NextRequest) {
       } as ReferenceDocument)),
     ]
 
-    // ── Create analysis record (status: processing) ───────────────────────────────
     const { data: analysis, error: insertError } = await supabase
       .from('analyses')
       .insert({
@@ -169,11 +149,10 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: `Erro ao criar análise: ${insertError?.message ?? 'sem dados'}` }, { status: 500 })
     }
 
-    const analysisId = analysis.id
+    createdAnalysisId = analysis.id
 
-    // ── Upload image to storage ───────────────────────────────────────────────────
     if (isImage) {
-      const storagePath = `${user.id}/${analysisId}.${ext}`
+      const storagePath = `${user.id}/${analysis.id}.${ext}`
       const fileBuffer = documentInput.type === 'image'
         ? Buffer.from(documentInput.base64, 'base64')
         : Buffer.from(await file.arrayBuffer())
@@ -182,13 +161,12 @@ export async function POST(req: NextRequest) {
         .from('analysis-images')
         .upload(storagePath, fileBuffer, { contentType: mediaType, upsert: false })
       if (!storageError) {
-        await supabase.from('analyses').update({ document_path: storagePath }).eq('id', analysisId)
+        await supabase.from('analyses').update({ document_path: storagePath }).eq('id', analysis.id)
       } else {
         console.error('[analyze] storage upload error:', storageError)
       }
     }
 
-    // ── Resolve link content ──────────────────────────────────────────────────────
     let referenceLinks: AnalysisReferenceLink[] = []
     if (sessionLinksInput.length > 0) {
       const linksNeedingContent = sessionLinksInput.filter(l => !l.content)
@@ -217,86 +195,61 @@ export async function POST(req: NextRequest) {
       ).filter((l): l is AnalysisReferenceLink => l !== null)
     }
 
-    // ── Dispatch analysis to Supabase Edge Function (preferred) or after() ───────
-    const edgeFnUrl = process.env.SUPABASE_ANALYZE_FUNCTION_URL
-    if (edgeFnUrl) {
-      // Call the Edge Function with a tiny payload — it loads all data from DB itself.
-      // We await with a short abort so the HTTP request is fully sent before returning.
-      const ctrl = new AbortController()
-      const abortTimer = setTimeout(() => ctrl.abort(), 1500)
-      try {
-        await fetch(edgeFnUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ analysisId, workType }),
-          signal: ctrl.signal,
-        })
-      } catch { /* AbortError (expected) — Edge Function received the request and runs independently */ }
-      finally { clearTimeout(abortTimer) }
-    } else {
-      // Fallback: after() — works if Vercel Fluid Compute is enabled
-      after(async () => {
-        const adminBg = createAdminClient()
-        try {
-          const result = await analyzeDocument(
-            documentInput,
-            file.name,
-            theme as Theme,
-            subtopic as Subtopic | null,
-            referenceDocs as ReferenceDocument[],
-            customPrompts,
-            customThemeName ?? undefined,
-            customSubtopicName ?? undefined,
-            oeaCriteriaData as OeaCriteria | null,
-            oeaItemData as OeaItem | null,
-            restrictToContext,
-            referenceLinks,
-            workType,
-            oeaCriteriaListData,
-          )
+    const result = await analyzeDocument(
+      documentInput,
+      file.name,
+      theme as Theme,
+      subtopic as Subtopic | null,
+      referenceDocs as ReferenceDocument[],
+      customPrompts,
+      customThemeName ?? undefined,
+      customSubtopicName ?? undefined,
+      oeaCriteriaData as OeaCriteria | null,
+      oeaItemData as OeaItem | null,
+      restrictToContext,
+      referenceLinks,
+      workType,
+    )
 
-          const reportPayload: Record<string, unknown> = {
-            analysis_id: analysisId,
-            overall_compliance: result.overall_compliance,
-            compliance_score: result.compliance_score,
-            summary: result.summary,
-            criteria_used: result.criteria_used,
-            prompt_responses: result.prompt_responses,
-            conforming_points: result.conforming_points,
-            partial_points: result.partial_points,
-            non_conforming_points: result.non_conforming_points,
-            improvement_suggestions: result.improvement_suggestions,
-            conclusion: result.conclusion,
-            raw_analysis: result.raw_analysis,
-          }
-
-          let { error: reportError } = await adminBg.from('reports').insert(reportPayload)
-          if (reportError) {
-            const { prompt_responses: _pr, ...payloadWithoutPR } = reportPayload
-            const fallback = await adminBg.from('reports').insert(payloadWithoutPR)
-            reportError = fallback.error
-          }
-          if (reportError) throw new Error(`Erro ao salvar relatório: ${reportError.message}`)
-
-          await adminBg.from('analyses').update({ status: 'completed' }).eq('id', analysisId)
-        } catch (err: unknown) {
-          console.error('[analyze:background]', err)
-          await adminBg
-            .from('analyses')
-            .update({ status: 'failed', error_message: err instanceof Error ? err.message : 'Erro desconhecido' })
-            .eq('id', analysisId)
-        }
-      })
+    const reportPayload: Record<string, unknown> = {
+      analysis_id: analysis.id,
+      overall_compliance: result.overall_compliance,
+      compliance_score: result.compliance_score,
+      summary: result.summary,
+      criteria_used: result.criteria_used,
+      prompt_responses: result.prompt_responses,
+      conforming_points: result.conforming_points,
+      partial_points: result.partial_points,
+      non_conforming_points: result.non_conforming_points,
+      improvement_suggestions: result.improvement_suggestions,
+      conclusion: result.conclusion,
+      raw_analysis: result.raw_analysis,
     }
 
-    // ── Return immediately — client will poll for completion ──────────────────────
-    return Response.json({ analysisId, success: true })
+    let { error: reportError } = await supabase.from('reports').insert(reportPayload)
 
+    if (reportError) {
+      const { prompt_responses: _pr, ...payloadWithoutPromptResponses } = reportPayload
+      const fallback = await supabase.from('reports').insert(payloadWithoutPromptResponses)
+      reportError = fallback.error
+    }
+
+    if (reportError) {
+      console.error('[analyze] report insert error:', reportError)
+      throw new Error(`Erro ao salvar relatório: ${reportError.message}`)
+    }
+
+    await supabase.from('analyses').update({ status: 'completed' }).eq('id', analysis.id)
+
+    return Response.json({ analysisId: analysis.id, success: true })
   } catch (err: unknown) {
     console.error('[analyze]', err)
+    if (createdAnalysisId) {
+      await supabase
+        .from('analyses')
+        .update({ status: 'failed', error_message: err instanceof Error ? err.message : 'Erro desconhecido' })
+        .eq('id', createdAnalysisId)
+    }
     return Response.json(
       { error: err instanceof Error ? err.message : 'Erro interno' },
       { status: 500 }
