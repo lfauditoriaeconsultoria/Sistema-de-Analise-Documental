@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2, AlertCircle, RefreshCw, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Props {
@@ -14,6 +14,8 @@ export function AnalysisProcessing({ analysisId, documentName }: Props) {
   const router = useRouter()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
+  const [retrying, setRetrying] = useState(false)
+  const [pollingActive, setPollingActive] = useState(true)
 
   useEffect(() => {
     const timer = setInterval(() => setElapsed(s => s + 1), 1000)
@@ -21,6 +23,7 @@ export function AnalysisProcessing({ analysisId, documentName }: Props) {
   }, [])
 
   useEffect(() => {
+    if (!pollingActive) return
     const supabase = createClient()
     let stopped = false
 
@@ -37,16 +40,41 @@ export function AnalysisProcessing({ analysisId, documentName }: Props) {
           router.refresh()
         } else if (json.status === 'failed') {
           setErrorMessage(json.errorMessage ?? 'Erro desconhecido na análise.')
+          setPollingActive(false)
         }
       } catch {
-        // network error, retry next tick
+        // network error — retry on next tick
       }
     }
 
     const interval = setInterval(poll, 3000)
     poll()
     return () => { stopped = true; clearInterval(interval) }
-  }, [analysisId, router])
+  }, [analysisId, router, pollingActive])
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true)
+    setErrorMessage(null)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/analyses/${analysisId}/retry`, {
+        method: 'POST',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) {
+        setElapsed(0)
+        setPollingActive(true)
+      } else {
+        const json = await res.json().catch(() => ({}))
+        setErrorMessage((json as { error?: string }).error ?? 'Erro ao reprocessar. Tente novamente.')
+      }
+    } catch {
+      setErrorMessage('Erro de rede. Verifique sua conexão e tente novamente.')
+    } finally {
+      setRetrying(false)
+    }
+  }, [analysisId])
 
   const mins = Math.floor(elapsed / 60)
   const secs = elapsed % 60
@@ -59,15 +87,26 @@ export function AnalysisProcessing({ analysisId, documentName }: Props) {
           <AlertCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-[#1a2a5e] dark:text-white mb-2">Erro na análise</h2>
+          <h2 className="text-xl font-bold text-[#1a2a5e] dark:text-white mb-2">Análise não concluída</h2>
           <p className="text-sm text-[#64748B] dark:text-[#94a3b8] max-w-md">{errorMessage}</p>
         </div>
-        <button
-          onClick={() => router.push('/analysis/new')}
-          className="px-5 py-2.5 rounded-xl bg-[#1B3A8C] text-white text-sm font-semibold hover:bg-[#1a2a5e] transition-colors"
-        >
-          Tentar novamente
-        </button>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            onClick={handleRetry}
+            disabled={retrying}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1B3A8C] text-white text-sm font-semibold hover:bg-[#1a2a5e] transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${retrying ? 'animate-spin' : ''}`} />
+            {retrying ? 'Reprocessando…' : 'Tentar novamente'}
+          </button>
+          <button
+            onClick={() => router.push('/analysis/new')}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-[#E2E8F0] dark:border-[#1e3a6e] text-[#1a2a5e] dark:text-white text-sm font-semibold hover:bg-[#f8fafc] dark:hover:bg-[#1e3a6e]/30 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Nova análise
+          </button>
+        </div>
       </div>
     )
   }

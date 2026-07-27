@@ -24,11 +24,22 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('analyses')
-    .select('id, status, error_message')
+    .select('id, status, error_message, created_at')
     .eq('id', id)
     .single()
 
   if (error || !data) return Response.json({ error: 'Não encontrado' }, { status: 404 })
+
+  // Auto-fail analyses stuck in processing for more than 5 minutes.
+  // This happens when after() is a no-op (Fluid Compute not enabled on Vercel).
+  if (data.status === 'processing') {
+    const ageMs = Date.now() - new Date(data.created_at).getTime()
+    if (ageMs > 5 * 60 * 1000) {
+      const staleMsg = 'A análise não foi concluída no tempo esperado. Clique em "Tentar novamente" para reprocessar.'
+      await admin.from('analyses').update({ status: 'failed', error_message: staleMsg }).eq('id', id)
+      return Response.json({ status: 'failed', errorMessage: staleMsg })
+    }
+  }
 
   return Response.json({ status: data.status, errorMessage: data.error_message })
 }
