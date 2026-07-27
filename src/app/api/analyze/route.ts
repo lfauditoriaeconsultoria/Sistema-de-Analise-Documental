@@ -217,59 +217,80 @@ export async function POST(req: NextRequest) {
       ).filter((l): l is AnalysisReferenceLink => l !== null)
     }
 
-    // ── Run Claude analysis in background (after response is sent) ────────────────
-    after(async () => {
-      const adminBg = createAdminClient()
+    // ── Dispatch analysis to Supabase Edge Function (preferred) or after() ───────
+    const edgeFnUrl = process.env.SUPABASE_ANALYZE_FUNCTION_URL
+    if (edgeFnUrl) {
+      // Call the Edge Function with a tiny payload — it loads all data from DB itself.
+      // We await with a short abort so the HTTP request is fully sent before returning.
+      const ctrl = new AbortController()
+      const abortTimer = setTimeout(() => ctrl.abort(), 1500)
       try {
-        const result = await analyzeDocument(
-          documentInput,
-          file.name,
-          theme as Theme,
-          subtopic as Subtopic | null,
-          referenceDocs as ReferenceDocument[],
-          customPrompts,
-          customThemeName ?? undefined,
-          customSubtopicName ?? undefined,
-          oeaCriteriaData as OeaCriteria | null,
-          oeaItemData as OeaItem | null,
-          restrictToContext,
-          referenceLinks,
-          workType,
-          oeaCriteriaListData,
-        )
+        await fetch(edgeFnUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ analysisId, workType }),
+          signal: ctrl.signal,
+        })
+      } catch { /* AbortError (expected) — Edge Function received the request and runs independently */ }
+      finally { clearTimeout(abortTimer) }
+    } else {
+      // Fallback: after() — works if Vercel Fluid Compute is enabled
+      after(async () => {
+        const adminBg = createAdminClient()
+        try {
+          const result = await analyzeDocument(
+            documentInput,
+            file.name,
+            theme as Theme,
+            subtopic as Subtopic | null,
+            referenceDocs as ReferenceDocument[],
+            customPrompts,
+            customThemeName ?? undefined,
+            customSubtopicName ?? undefined,
+            oeaCriteriaData as OeaCriteria | null,
+            oeaItemData as OeaItem | null,
+            restrictToContext,
+            referenceLinks,
+            workType,
+            oeaCriteriaListData,
+          )
 
-        const reportPayload: Record<string, unknown> = {
-          analysis_id: analysisId,
-          overall_compliance: result.overall_compliance,
-          compliance_score: result.compliance_score,
-          summary: result.summary,
-          criteria_used: result.criteria_used,
-          prompt_responses: result.prompt_responses,
-          conforming_points: result.conforming_points,
-          partial_points: result.partial_points,
-          non_conforming_points: result.non_conforming_points,
-          improvement_suggestions: result.improvement_suggestions,
-          conclusion: result.conclusion,
-          raw_analysis: result.raw_analysis,
+          const reportPayload: Record<string, unknown> = {
+            analysis_id: analysisId,
+            overall_compliance: result.overall_compliance,
+            compliance_score: result.compliance_score,
+            summary: result.summary,
+            criteria_used: result.criteria_used,
+            prompt_responses: result.prompt_responses,
+            conforming_points: result.conforming_points,
+            partial_points: result.partial_points,
+            non_conforming_points: result.non_conforming_points,
+            improvement_suggestions: result.improvement_suggestions,
+            conclusion: result.conclusion,
+            raw_analysis: result.raw_analysis,
+          }
+
+          let { error: reportError } = await adminBg.from('reports').insert(reportPayload)
+          if (reportError) {
+            const { prompt_responses: _pr, ...payloadWithoutPR } = reportPayload
+            const fallback = await adminBg.from('reports').insert(payloadWithoutPR)
+            reportError = fallback.error
+          }
+          if (reportError) throw new Error(`Erro ao salvar relatório: ${reportError.message}`)
+
+          await adminBg.from('analyses').update({ status: 'completed' }).eq('id', analysisId)
+        } catch (err: unknown) {
+          console.error('[analyze:background]', err)
+          await adminBg
+            .from('analyses')
+            .update({ status: 'failed', error_message: err instanceof Error ? err.message : 'Erro desconhecido' })
+            .eq('id', analysisId)
         }
-
-        let { error: reportError } = await adminBg.from('reports').insert(reportPayload)
-        if (reportError) {
-          const { prompt_responses: _pr, ...payloadWithoutPR } = reportPayload
-          const fallback = await adminBg.from('reports').insert(payloadWithoutPR)
-          reportError = fallback.error
-        }
-        if (reportError) throw new Error(`Erro ao salvar relatório: ${reportError.message}`)
-
-        await adminBg.from('analyses').update({ status: 'completed' }).eq('id', analysisId)
-      } catch (err: unknown) {
-        console.error('[analyze:background]', err)
-        await adminBg
-          .from('analyses')
-          .update({ status: 'failed', error_message: err instanceof Error ? err.message : 'Erro desconhecido' })
-          .eq('id', analysisId)
-      }
-    })
+      })
+    }
 
     // ── Return immediately — client will poll for completion ──────────────────────
     return Response.json({ analysisId, success: true })
