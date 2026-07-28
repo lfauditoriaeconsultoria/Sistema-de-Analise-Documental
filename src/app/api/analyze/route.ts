@@ -6,7 +6,7 @@ import { extractTextFromFile } from '@/lib/document-parser'
 import { fetchUrlContent } from '@/lib/fetch-url-content'
 import { Theme, Subtopic, ReferenceDocument, OeaCriteria, OeaItem } from '@/types'
 
-export const maxDuration = 300
+export const maxDuration = 480
 
 function buildSupabase(token?: string) {
   return createServerClient(
@@ -58,16 +58,31 @@ export async function POST(req: NextRequest) {
     const sessionLinksInput: Array<{ name: string; url: string; content: string | null }> = sessionLinksRaw ? JSON.parse(sessionLinksRaw) : []
     const selectedOeaCriteriaId = formData.get('selectedOeaCriteriaId') as string | null
     const selectedOeaItemId = formData.get('selectedOeaItemId') as string | null
+    const selectedOeaCriteriaIdsRaw = formData.get('selectedOeaCriteriaIds') as string | null
+    const selectedOeaCriteriaIds: string[] = selectedOeaCriteriaIdsRaw ? JSON.parse(selectedOeaCriteriaIdsRaw) : []
     const useExternalKnowledgeRaw = formData.get('useExternalKnowledge') as string | null
     const restrictToContext = useExternalKnowledgeRaw === 'false'
     const workType = (formData.get('workType') as string | null ?? 'report') as 'report' | 'adequacy'
 
+    const primaryCriteriaId = selectedOeaCriteriaIds.length === 1
+      ? selectedOeaCriteriaIds[0]
+      : selectedOeaCriteriaIds.length === 0 ? selectedOeaCriteriaId : null
+
     const [{ data: theme }, { data: subtopic }, { data: oeaCriteriaData }, { data: oeaItemData }] = await Promise.all([
       admin.from('themes').select('*').eq('id', themeId).single(),
       subtopicId ? admin.from('subtopics').select('*').eq('id', subtopicId).single() : Promise.resolve({ data: null }),
-      selectedOeaCriteriaId ? admin.from('oea_criteria').select('*, items:oea_items(*)').eq('id', selectedOeaCriteriaId).single() : Promise.resolve({ data: null }),
+      primaryCriteriaId ? admin.from('oea_criteria').select('*, items:oea_items(*)').eq('id', primaryCriteriaId).single() : Promise.resolve({ data: null }),
       selectedOeaItemId ? admin.from('oea_items').select('*').eq('id', selectedOeaItemId).single() : Promise.resolve({ data: null }),
     ])
+
+    let oeaCriteriaListData: OeaCriteria[] | undefined
+    if (selectedOeaCriteriaIds.length > 1) {
+      const { data: multiCriteria } = await admin
+        .from('oea_criteria')
+        .select('*, items:oea_items(*)')
+        .in('id', selectedOeaCriteriaIds)
+      oeaCriteriaListData = (multiCriteria ?? []) as OeaCriteria[]
+    }
 
     if (!theme) {
       return Response.json({ error: 'Tema não encontrado' }, { status: 404 })
@@ -101,8 +116,11 @@ export async function POST(req: NextRequest) {
       }
       if (selectedOeaItemId) {
         refQuery = refQuery.or(`oea_item_id.eq.${selectedOeaItemId},oea_item_id.is.null`)
-      } else if (selectedOeaCriteriaId) {
-        refQuery = refQuery.or(`oea_criteria_id.eq.${selectedOeaCriteriaId},oea_criteria_id.is.null`)
+      } else if (selectedOeaCriteriaIds.length > 1) {
+        const criteriaFilter = selectedOeaCriteriaIds.map(id => `oea_criteria_id.eq.${id}`).join(',')
+        refQuery = refQuery.or(`${criteriaFilter},oea_criteria_id.is.null`)
+      } else if (primaryCriteriaId) {
+        refQuery = refQuery.or(`oea_criteria_id.eq.${primaryCriteriaId},oea_criteria_id.is.null`)
       }
     }
     const { data: dbDocs } = await refQuery
@@ -209,6 +227,7 @@ export async function POST(req: NextRequest) {
       restrictToContext,
       referenceLinks,
       workType,
+      oeaCriteriaListData,
     )
 
     const reportPayload: Record<string, unknown> = {

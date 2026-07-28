@@ -125,6 +125,7 @@ function buildSystemPrompt(
   oeaItem?: OeaItem | null,
   restrictToContext?: boolean,
   referenceLinks: AnalysisReferenceLink[] = [],
+  oeaCriteriaList?: OeaCriteria[],
 ): string {
   const themeName = customThemeName || theme.name
   const subtopicName = customSubtopicName || subtopic?.name
@@ -144,11 +145,17 @@ function buildSystemPrompt(
     ? `\n## Instruções Específicas do Gestor\nAs instruções abaixo foram definidas pelo gestor para este tipo de análise. Responda a cada uma delas de forma objetiva com base no documento analisado.\n${customPrompts.map((p, i) => `### Instrução ${i + 1}: ${p.title}\n${p.content}`).join('\n\n')}\n`
     : ''
 
+  const REF_OEA = 'IN RFB Nº 2.318 de 26/03/2026 e Portaria COANA Nº 187 de 02/04/2026'
   let oeaFocusSection = ''
-  if (oeaItem && oeaCriteria) {
-    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name} / Item ${oeaItem.item_number}\n**Requisito específico a avaliar:**\n${oeaItem.description}\n\nAnalise o documento com foco neste requisito específico do OEA (IN RFB Nº 2.318 de 26/03/2026 e Portaria COANA Nº 187 de 02/04/2026). Avalie se o documento comprova, demonstra ou está em conformidade com este item em particular.\n`
+  if (oeaCriteriaList && oeaCriteriaList.length > 1) {
+    const criteriaLines = oeaCriteriaList
+      .map(c => `- **Critério ${c.number} - ${c.name}**: ${c.description ?? ''}`)
+      .join('\n')
+    oeaFocusSection = `\n## Foco da Análise: Múltiplos Critérios OEA (${REF_OEA})\nAnalise o documento avaliando a conformidade com TODOS os critérios listados abaixo:\n${criteriaLines}\n`
+  } else if (oeaItem && oeaCriteria) {
+    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name} / Item ${oeaItem.item_number}\n**Requisito específico a avaliar:**\n${oeaItem.description}\n\nAnalise o documento com foco neste requisito específico do OEA (${REF_OEA}). Avalie se o documento comprova, demonstra ou está em conformidade com este item em particular.\n`
   } else if (oeaCriteria) {
-    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name}\n**Descrição do critério:**\n${oeaCriteria.description ?? ''}\n\nAnalise o documento com foco nos requisitos deste critério do OEA (IN RFB Nº 2.318 de 26/03/2026 e Portaria COANA Nº 187 de 02/04/2026).\n`
+    oeaFocusSection = `\n## Foco da Análise: OEA Critério ${oeaCriteria.number} - ${oeaCriteria.name}\n**Descrição do critério:**\n${oeaCriteria.description ?? ''}\n\nAnalise o documento com foco nos requisitos deste critério do OEA (${REF_OEA}).\n`
   }
 
   const restrictionSection = restrictToContext
@@ -216,6 +223,7 @@ export async function analyzeDocument(
   restrictToContext?: boolean,
   referenceLinks: AnalysisReferenceLink[] = [],
   workType: 'report' | 'adequacy' = 'report',
+  oeaCriteriaList?: OeaCriteria[],
 ): Promise<AnalysisResult> {
   const client = getAnthropicClient()
 
@@ -276,7 +284,7 @@ export async function analyzeDocument(
   }
 
   // ── Standard compliance report path ──────────────────────────────────────────
-  const systemPrompt = buildSystemPrompt(theme, subtopic, referenceDocs, customPrompts, customThemeName, customSubtopicName, oeaCriteria, oeaItem, restrictToContext, referenceLinks)
+  const systemPrompt = buildSystemPrompt(theme, subtopic, referenceDocs, customPrompts, customThemeName, customSubtopicName, oeaCriteria, oeaItem, restrictToContext, referenceLinks, oeaCriteriaList)
 
   type ContentBlock =
     | { type: 'text'; text: string }
