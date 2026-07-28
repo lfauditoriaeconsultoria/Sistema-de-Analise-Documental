@@ -92,8 +92,6 @@ export function AnalysisHistoryClient({ analyses, themes, isAdmin }: Props) {
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className={inputCls}>
             <option value="">Todos os status</option>
             <option value="completed">Concluídas</option>
-            <option value="processing">Em andamento</option>
-            <option value="failed">Com erro</option>
           </select>
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setFilterTheme(''); setFilterStatus(''); setFilterUser('') }}>

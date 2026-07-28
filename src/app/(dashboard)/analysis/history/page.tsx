@@ -26,6 +26,7 @@ export default async function HistoryPage() {
         report:reports(overall_compliance, compliance_score),
         user:profiles(id, full_name)
       `)
+      .not('status', 'in', '(failed,processing)')
       .order('created_at', { ascending: false })
     analyses = data
   } else {
@@ -38,6 +39,7 @@ export default async function HistoryPage() {
         report:reports(overall_compliance, compliance_score)
       `)
       .eq('user_id', user!.id)
+      .not('status', 'in', '(failed,processing)')
       .order('created_at', { ascending: false })
     analyses = data
   }
