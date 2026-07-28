@@ -5,7 +5,7 @@ import { Badge, ComplianceBadge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import {
-  FileText, CheckCircle, XCircle,
+  FileText, CheckCircle, XCircle, Clock,
   FilePlus, BookOpen, ArrowRight, Shield, Lock
 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
