@@ -5,7 +5,7 @@ import { Badge, ComplianceBadge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import {
-  FileText, CheckCircle, Clock,
+  FileText, CheckCircle, XCircle,
   FilePlus, BookOpen, ArrowRight, Shield, Lock
 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
@@ -39,14 +39,14 @@ export default async function DashboardPage() {
 
   const total     = allAnalyses?.length ?? 0
   const completed = allAnalyses?.filter(a => a.status === 'completed').length ?? 0
-  const pending   = allAnalyses?.filter(a => ['pending', 'processing'].includes(a.status)).length ?? 0
+  const failed    = allAnalyses?.filter(a => a.status === 'failed').length ?? 0
 
   const { data: themes } = await createAdminClient().from('themes').select('*').eq('is_active', true)
 
   const stats = [
     { label: 'Total de Análises', value: total,     icon: <FileText size={20} />,    color: '#1B3A8C', bg: '#EEF2FF' },
     { label: 'Concluídas',        value: completed, icon: <CheckCircle size={20} />, color: '#16A34A', bg: '#DCFCE7' },
-    { label: 'Em Andamento',      value: pending,   icon: <Clock size={20} />,       color: '#D97706', bg: '#FEF3C7' },
+    { label: 'Com Erro',          value: failed,    icon: <XCircle size={20} />,     color: '#DC2626', bg: '#FEE2E2' },
   ]
 
   return (
