@@ -26,6 +26,7 @@ export default async function DashboardPage() {
   const query = supabase
     .from('analyses')
     .select('*, theme:themes(name, color), subtopic:subtopics(name), report:reports(*)')
+    .not('status', 'in', '(failed,processing)')
     .order('created_at', { ascending: false })
 
   const { data: analyses } = isAdmin
