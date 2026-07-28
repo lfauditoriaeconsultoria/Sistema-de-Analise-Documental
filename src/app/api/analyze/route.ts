@@ -6,7 +6,7 @@ import { extractTextFromFile } from '@/lib/document-parser'
 import { fetchUrlContent } from '@/lib/fetch-url-content'
 import { Theme, Subtopic, ReferenceDocument, OeaCriteria, OeaItem } from '@/types'
 
-export const maxDuration = 480
+export const maxDuration = 300
 
 function buildSupabase(token?: string) {
   return createServerClient(
