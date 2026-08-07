@@ -140,7 +140,7 @@ JSON ESPERADO:
 {
   "empresa": "razão social da empresa auditada",
   "criterio": "critério auditado completo",
-  "requisitos": "Requisitos X.X a X.X do Programa Brasileiro de Operador Econômico Autorizado (OEA) — use o menor e o maior número de requisito encontrado na planilha para formar o intervalo. Ex: 'Requisitos 5.1 a 5.13 do Programa Brasileiro de Operador Econômico Autorizado (OEA)'",
+  "requisitos": "FORMATO FIXO OBRIGATÓRIO: 'Requisitos X.X a Y.Y do Programa Brasileiro de Operador Econômico Autorizado (OEA)' — onde X.X é o MENOR número de requisito da planilha e Y.Y é o MAIOR. PROIBIDO listar requisitos individualmente. PROIBIDO incluir nomes de portarias ou documentos aqui. Somente o intervalo. Exemplo correto: 'Requisitos 5.1 a 5.13 do Programa Brasileiro de Operador Econômico Autorizado (OEA)'",
   "periodo": "período analisado",
   "metodologia": "metodologia aplicada",
   "auditor": "nome do auditor (vazio se não informado)",
