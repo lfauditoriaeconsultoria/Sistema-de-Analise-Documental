@@ -12,6 +12,10 @@ interface AuditOption {
   badge?: string
 }
 
+// Elaborar Checklist está em fase de testes — ativo apenas em desenvolvimento local.
+// Em produção (Vercel) aparece como "Em breve" para os colaboradores.
+const checklistEnabled = process.env.NODE_ENV === 'development'
+
 const options: AuditOption[] = [
   {
     icon: <FileSpreadsheet size={32} />,
@@ -19,7 +23,8 @@ const options: AuditOption[] = [
     description:
       'Crie uma planilha de auditoria personalizada com base nos procedimentos e documentos de referência de cada cliente.',
     href: '/checklist/generate',
-    enabled: true,
+    enabled: checklistEnabled,
+    badge: checklistEnabled ? undefined : 'Em breve',
   },
   {
     icon: <FileCheck size={32} />,

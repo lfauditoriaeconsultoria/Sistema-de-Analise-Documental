@@ -102,7 +102,7 @@ function sheetsToText(buffer: Buffer): string {
 
 /** Lê o PDF do modelo como base64 para enviar ao Claude */
 function loadModelPdf(): string | null {
-  const pdfPath = path.resolve(process.cwd(), '..', 'relatorio_de_auditoria', 'modelo_geracao_relatorio.pdf')
+  const pdfPath = path.join(process.cwd(), 'data', 'modelo_relatorio.pdf')
   if (!fs.existsSync(pdfPath)) {
     console.warn('[audit/generate] PDF modelo não encontrado em', pdfPath)
     return null
@@ -112,9 +112,9 @@ function loadModelPdf(): string | null {
 
 /** Lê o arquivo de instrução de geração */
 function loadPromptTxt(): string {
-  const txtPath = path.resolve(process.cwd(), '..', 'relatorio_de_auditoria', 'prompt_geracao_relatorio.txt')
+  const txtPath = path.join(process.cwd(), 'data', 'prompt_relatorio.txt')
   if (!fs.existsSync(txtPath)) {
-    console.warn('[audit/generate] prompt_geracao_relatorio.txt não encontrado em', txtPath)
+    console.warn('[audit/generate] prompt_relatorio.txt não encontrado em', txtPath)
     return ''
   }
   return fs.readFileSync(txtPath, 'utf-8')
@@ -234,6 +234,8 @@ export async function POST(req: NextRequest) {
           data: modelPdfBase64,
         },
         title: 'Modelo de Relatório Executivo de Auditoria OEA',
+        // Cache do PDF modelo (estável entre requisições) — economiza ~800 tokens por chamada
+        cache_control: { type: 'ephemeral' },
       })
     }
 
@@ -245,11 +247,19 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 16000,
-      system: systemPrompt,
+      // Cache do system prompt (estável entre requisições) — economiza tokens em chamadas subsequentes
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
       messages: [
         { role: 'user', content: userContent },
       ],
     })
+
+    console.log(
+      '[audit/generate] cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
+      '| cache_read:', message.usage?.cache_read_input_tokens ?? 0,
+      '| input:', message.usage?.input_tokens,
+    )
 
     const rawText = message.content
       .filter(b => b.type === 'text')

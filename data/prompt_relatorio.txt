@@ -1,0 +1,345 @@
+Elabore um Relatório Executivo de Auditoria a partir da planilha de checklist anexada, seguindo exatamente o modelo visual "modelo_geracao_relatorio" (documento PDF em anexo).
+
+O resultado será entregue em JSON estruturado — o sistema converterá automaticamente em PDF e Word com a identidade visual do modelo.
+
+1. Análise da planilha
+
+Antes de elaborar o relatório, analise integralmente a planilha e identifique automaticamente, sem presumir o tema:
+
+* A empresa auditada, o critério auditado e os requisitos avaliados;
+* O procedimento ou documento de referência, incluindo código, versão, nome e controles citados;
+* Os itens e temas avaliados, considerando as colunas Item, Nome e Subitem/Tema;
+* O período analisado, a metodologia aplicada e o auditor responsável;
+* A classificação de atendimento de cada item, conforme as colunas do bloco Atendimento:
+
+  * Sim = Conforme;
+  * Não = Não Conforme;
+  * Parcial = Parcialmente Conforme;
+  * N/A = Não Aplicável;
+  * N/V = Não Verificado;
+* As constatações, não conformidades e recomendações de melhoria registradas.
+
+Considere somente as linhas efetivamente preenchidas ou filtradas na planilha. Linhas sem classificação de atendimento estão fora do escopo e não devem entrar em nenhuma contagem.
+
+Não invente, presuma ou complemente informações que não estejam suportadas pelas evidências da planilha.
+
+Ignore integralmente o conteúdo da coluna Backlog. Nenhuma informação dessa coluna deve aparecer no relatório.
+
+
+2. Cálculo do índice de conformidade
+
+Utilize os seguintes pesos:
+
+* Conforme = 100%;
+* Parcialmente Conforme = 50%;
+* Não Conforme = 0%;
+* Não Aplicável = excluído da base de cálculo.
+
+Fórmula:
+
+(número de itens conformes + número de itens parcialmente conformes × 0,5) ÷ (total de itens − itens não aplicáveis)
+
+No campo "indice_calculo_descricao" do JSON, escreva o parágrafo completo da seção 2: explique o critério de cálculo E apresente a conta com os números reais encontrados na planilha.
+Exemplo: "O índice de conformidade foi calculado atribuindo peso integral (100%) aos itens Conformes, peso de 50% aos Parcialmente Conformes e peso zero aos Não Conformes, excluindo os Não Aplicáveis da base de cálculo. Aplicando a fórmula com os dados desta auditoria: (20 + 1 × 0,5) / (21 − 0) = 20,5 / 21 = 97,6% (noventa e sete vírgula seis por cento)."
+
+Recalcule os resultados e confirme que os percentuais apresentados no texto, nas tabelas, nos indicadores e no gráfico são consistentes entre si.
+
+2.1 Contagem de não conformidades e recomendações
+
+Cada registro preenchido na respectiva coluna deve ser contabilizado como uma ocorrência, independentemente da quantidade de tópicos descritos na célula.
+
+Exemplo:
+
+Uma célula da coluna Não conformidades que contenha seis inconsistências organizadas em alíneas de a) até f) deve ser contabilizada como uma única não conformidade, e não como seis.
+
+A mesma regra deve ser aplicada à coluna Recomendações de melhoria.
+
+Células vazias ou preenchidas com N/A, Não aplicável ou “-” não devem ser contabilizadas.
+
+Logo abaixo da tabela da seção 3, inclua a seguinte nota em texto reduzido:
+
+Critério de contagem: cada registro lançado nas colunas “Não conformidades” e “Recomendações de melhoria” da planilha de auditoria é contabilizado como 1 (uma) ocorrência, independentemente da quantidade de tópicos descritos em seu conteúdo.
+
+Os tópicos internos podem e devem ser descritos qualitativamente no Resumo Executivo e na Conclusão.
+
+Exemplo:
+
+“Foram identificadas inconsistências relacionadas a erro na identificação de norma, divergências em datas de publicação e campos sem preenchimento.”
+
+Entretanto, esses tópicos internos não alteram a contagem das ocorrências.
+
+3. Estrutura do documento
+
+O documento deve possuir exatamente cinco seções, além da capa e do sumário.
+
+Capa
+
+A capa não deve possuir numeração, cabeçalho ou rodapé convencional.
+
+Deve conter:
+
+* Faixa superior em degradê azul-marinho ocupando toda a largura;
+* Texto “Relatório de Auditoria” em destaque;
+* Abaixo, o texto “Monitoramento da Certificação OEA-Segurança (OEA-S)”;
+* Filete verde logo abaixo da faixa, ocupando toda a largura;
+* Logo comemorativa de 20 anos centralizada, com aproximadamente 40 mm de largura;
+* Nome da empresa auditada em letras maiúsculas;
+* Nome do critério auditado;
+* Linha com os requisitos avaliados do Programa Brasileiro de Operador Econômico Autorizado (OEA);
+* Rodapé da capa com o texto:
+
+LF Auditoria e Consultoria · Compartilhando Conhecimento · lfconsultoria.srv.br
+
+Não inclua caixas ou quadros de escopo na capa.
+
+Sumário
+
+Apresente as cinco seções do relatório com a respectiva numeração das páginas, utilizando linhas pontilhadas.
+
+A numeração indicada no sumário deve corresponder exatamente à paginação real do documento gerado. Verifique a paginação antes da entrega.
+
+1. Resumo Executivo
+
+Elabore entre quatro e cinco parágrafos em texto corrido, abordando:
+
+* O escopo da auditoria e os documentos de referência;
+* A quantidade de itens avaliados, os temas analisados e o período considerado;
+* O resultado geral, incluindo a distribuição das classificações e o total de não conformidades e recomendações;
+* Os principais aspectos positivos identificados;
+* Os principais pontos que demandam adequação.
+
+Consolide e interprete as constatações de forma executiva.
+
+Não reproduza literalmente os textos da planilha e não altere o sentido das informações registradas.
+
+2. Índice Geral de Conformidade
+
+Inclua:
+
+* Um parágrafo explicando o critério de cálculo;
+* Uma faixa com cinco cartões indicadores:
+
+  * Itens avaliados;
+  * Conformes;
+  * Parcialmente conformes;
+  * Não conformes;
+  * Não aplicáveis;
+* Um gráfico de rosca com o percentual geral de conformidade no centro;
+* Uma legenda à direita do gráfico;
+* Uma legenda descritiva abaixo do gráfico.
+
+3. Resultado por Requisito
+
+Apresente uma tabela consolidada com uma linha para cada item avaliado e uma linha de total destacada.
+
+A tabela deve possuir as seguintes colunas:
+
+* Requisito;
+* Item;
+* Tema Avaliado;
+* Controle;
+* Classificação;
+* Não Conf.;
+* Recomendações;
+* % Conformidade.
+
+Logo abaixo da tabela, inclua uma nota curta indicando quais itens demandam maior atenção e o motivo.
+
+Também inclua a nota sobre o critério de contagem de não conformidades e recomendações.
+
+4. Quadro Executivo de Resultados
+
+Inclua uma faixa com cinco cartões indicadores:
+
+* Conformidade geral;
+* Itens avaliados;
+* Itens conformes;
+* Não conformidades;
+* Recomendações.
+
+Em seguida, apresente uma tabela com as colunas Indicador e Resultado, contendo:
+
+* Critério auditado;
+* Procedimento de referência;
+* Período analisado;
+* Metodologia aplicada;
+* Itens avaliados;
+* Itens conformes;
+* Itens parcialmente conformes;
+* Itens não conformes;
+* Itens não aplicáveis;
+* Não conformidades registradas;
+* Recomendações de melhoria;
+* Item com maior necessidade de atenção.
+
+5. Conclusão
+
+Elabore entre quatro e cinco parágrafos baseados exclusivamente nos resultados encontrados.
+
+Aborde:
+
+* O nível geral de aderência;
+* Os principais aspectos positivos;
+* Os principais pontos que demandam adequação;
+* A relevância do tratamento das não conformidades para a manutenção da certificação;
+* A contribuição das recomendações de melhoria;
+* A maturidade dos controles, somente quando houver informações suficientes para essa avaliação.
+
+Finalize com:
+
+Santos/SP, <mês> de <ano>.
+
+LF Auditoria e Consultoria
+
+
+4. Regras de redação
+
+No texto corrido, todo número deve ser acompanhado de sua forma por extenso entre parênteses.
+
+Exemplos:
+
+* 21 (vinte e um) itens;
+* 3 (três) não conformidades;
+* 75,0% (setenta e cinco por cento).
+
+Nas tabelas e nos cartões indicadores, utilize somente algarismos.
+
+Utilize o termo “auditoria”, e não “consultoria”, ao se referir ao trabalho realizado.
+
+Exemplo:
+
+“As recomendações da auditoria orientam a organização quanto ao fortalecimento dos controles.”
+
+Preserve a razão social “LF Auditoria e Consultoria” no cabeçalho, no rodapé e na assinatura.
+
+Utilize linguagem profissional, técnica e consultiva, evitando tom punitivo.
+
+Diferencie corretamente:
+
+* Não conformidade: não atendimento de um requisito avaliado;
+* Recomendação ou oportunidade de melhoria: sugestão para fortalecimento dos controles, mesmo quando não houver descumprimento.
+
+Não transforme uma não conformidade em recomendação, nem uma recomendação em não conformidade.
+
+Não crie recomendações sem respaldo nas informações da planilha.
+
+Evite páginas excessivamente carregadas e grandes blocos de texto. Priorize uma leitura executiva.
+
+5. Identidade visual
+
+Utilize as seguintes cores:
+
+* Azul-marinho: #123E7C;
+* Azul: #1B5FAA;
+* Verde: #2BA05A;
+* Âmbar: #E8A020;
+* Texto âmbar: #C8860E;
+* Vermelho: #C0392B;
+* Cinza de apoio: #5A6A7A;
+* Texto principal: #2C3743;
+* Bordas: #D6E2EF;
+* Fundo suave: #F4F8FC;
+* Fundo da linha de total: #EAF1F9.
+
+Fonte:
+
+* Arial ou DejaVu Sans.
+
+Configuração da página:
+
+* Formato A4;
+* Margem superior aproximada de 2,5 cm;
+* Margens laterais aproximadas de 1,9 cm.
+
+Cabeçalho
+
+O cabeçalho deve aparecer em todas as páginas, exceto na capa.
+
+À esquerda:
+
+LF Auditoria e Consultoria
+
+O texto deve estar em azul-marinho.
+
+À direita:
+
+Relatório Executivo de Auditoria — Monitoramento OEA-S · <EMPRESA>
+
+O texto deve estar em cinza e em tamanho menor.
+
+Garanta um espaçamento adequado entre os dois textos, evitando que fiquem colados.
+
+Inclua um filete azul abaixo do cabeçalho.
+
+Rodapé
+
+O rodapé deve aparecer em todas as páginas, exceto na capa, contendo:
+
+LF Auditoria e Consultoria · lfconsultoria.srv.br · Página X de Y
+
+Títulos das seções
+
+Apresente o número da seção em verde e o título em azul.
+
+Inclua um filete azul abaixo do título.
+
+Cartões indicadores
+
+Os cartões devem possuir uma borda superior colorida conforme o significado:
+
+* Azul para indicadores neutros;
+* Verde para itens conformes;
+* Âmbar para itens parcialmente conformes;
+* Vermelho para itens não conformes;
+* Cinza para itens não aplicáveis.
+
+Apresente o valor em tamanho grande e o rótulo em tamanho menor abaixo.
+
+Tabelas
+
+Utilize:
+
+* Cabeçalho azul com texto branco;
+* Linhas alternadas com fundo #F4F8FC;
+* Linha de total com fundo #EAF1F9;
+* Texto da linha de total em negrito;
+* Percentuais coloridos conforme a faixa:
+
+  * Verde para resultado alto;
+  * Âmbar para resultado intermediário;
+  * Vermelho para resultado baixo.
+
+Códigos de documentos, como D.SG.006 e F.GRI.003, não devem ser quebrados no meio.
+
+Gráfico de rosca
+
+O gráfico deve possuir:
+
+* Anel com espessura aproximada de 0,42;
+* Percentual geral em destaque no centro;
+* Texto “Conformidade Geral” abaixo do percentual;
+* Legenda posicionada à direita;
+* Rótulo, quantidade e percentual de cada classificação;
+* Fundo transparente.
+
+6. Geração dos arquivos
+
+O sistema converterá o JSON em PDF (via renderização HTML/CSS no navegador) e Word (.docx via biblioteca docx).
+Não gere arquivos diretamente — retorne apenas o JSON com todos os campos preenchidos corretamente.
+Preencha todos os campos do JSON com exatidão: o sistema monta a estrutura visual, cartões indicadores, gráfico de rosca, tabelas e assinatura automaticamente.
+
+7. Validação obrigatória antes da entrega
+
+Antes de entregar os arquivos, confirme que:
+
+* O escopo apresentado corresponde ao conteúdo da planilha;
+* Todos os requisitos e itens auditados foram considerados;
+* Nenhum item classificado como Não Aplicável foi contabilizado no percentual de conformidade;
+* Os indicadores foram recalculados;
+* Os percentuais são consistentes entre o texto, as tabelas, os cartões e o gráfico;
+* As não conformidades e recomendações foram contabilizadas por registro, e não pela quantidade de tópicos internos;
+* Nenhuma informação foi criada sem respaldo na documentação fornecida;
+* Nenhum conteúdo da coluna Backlog aparece no documento;
+* Os números no texto corrido estão acompanhados da forma por extenso entre parênteses;
+* A numeração do sumário corresponde à paginação real;
+* O resultado final possui formato de relatório executivo, e não de reprodução da planilha.

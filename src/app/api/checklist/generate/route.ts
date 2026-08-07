@@ -21,15 +21,25 @@ function buildFilename(cliente: string, criterio: string): string {
   return safe(`Monitoramento OEA - ${cliente} - Checklist Auditoria ${yyyy} (${criterio}) - rev LF ${dd}${mes}${yyyy}`)
 }
 
-/* ── Lê o prompt mestre e o template da pasta raiz do projeto ── */
+/* ── Lê os arquivos de configuração da pasta data/ (dentro do projeto) ── */
 function loadPromptMestre(): string {
-  const p = path.resolve(process.cwd(), '..', 'preenchimento_planilha_auditoria', 'prompt_mestre.txt')
+  const p = path.join(process.cwd(), 'data', 'prompt_mestre.txt')
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : ''
 }
 
 function loadTemplate(): Buffer {
-  const p = path.resolve(process.cwd(), '..', 'preenchimento_planilha_auditoria', 'Monitoramento OEA - EMPRESA - Checklist Auditoria.xlsx')
+  const p = path.join(process.cwd(), 'data', 'template_checklist.xlsx')
   return fs.readFileSync(p)
+}
+
+/** Lê o Anexo II da Portaria Coana nº 154/2024 como base64 para enviar ao Claude */
+function loadAnexoII(): string | null {
+  const p = path.join(process.cwd(), 'data', 'ANEXO II.pdf')
+  if (!fs.existsSync(p)) {
+    console.warn('[checklist/generate] ANEXO II.pdf não encontrado em', p)
+    return null
+  }
+  return fs.readFileSync(p).toString('base64')
 }
 
 /* ── Item de checklist gerado pela IA ── */
@@ -77,8 +87,10 @@ async function fillTemplate(
     const rowNum = 3 + idx  // dados a partir da linha 3 (1-indexed)
     const row    = ws.getRow(rowNum)
 
-    // Linhas além do template (>24): aplica estilo da linha 3 em cada célula A–P
-    if (rowNum > 24) {
+    // Linhas a partir da 24 (última do template tem estilo de fechamento diferente,
+    // e linhas acima dela não existem no template) — clona estilo da linha 3.
+    // Bug anterior: condição ">24" excluía exatamente o row 24, deixando-o sem estilo.
+    if (rowNum >= 24) {
       row.height = 87  // altura padrão compatível com o template
       for (let col = 1; col <= 16; col++) {
         const cell = row.getCell(col)
@@ -105,6 +117,16 @@ async function fillTemplate(
     row.getCell(15).value = item.evidencia
     row.getCell(16).value = item.metodologia
     // colunas Q (17) em diante = intocadas (etapa de conformidade)
+
+    // Garante quebra automática de texto em todas as colunas de conteúdo (D–P).
+    // Necessário porque escrever .value pode não preservar wrapText do template
+    // em algumas versões do ExcelJS.
+    for (let col = 4; col <= 16; col++) {
+      const cell = row.getCell(col)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existing = (cell.alignment ?? {}) as any
+      cell.alignment = { ...existing, wrapText: true, vertical: 'top' }
+    }
 
     row.commit()
   })
@@ -175,8 +197,17 @@ export async function POST(req: NextRequest) {
 
     // ── Prompt mestre ─────────────────────────────────────────────────────────
     const promptMestre = loadPromptMestre()
+    const anexoIIBase64 = loadAnexoII()
 
     const systemPrompt = `${promptMestre}
+
+━━━ REFERÊNCIA NORMATIVA ━━━
+
+O Anexo II da Portaria Coana nº 154/2024 está anexado como PRIMEIRO documento na mensagem.
+Use-o como fonte direta e definitiva para preencher as colunas E (requisito) e F (qualificador).
+CADA ITEM pode ter um requisito diferente — nunca repita o mesmo número para todos os itens.
+Consulte o Anexo II para identificar qual requisito corresponde ao conteúdo de cada processo auditado.
+Não use memória ou inferência para esses campos — use exclusivamente o Anexo II anexado.
 
 ━━━ FORMATO DE SAÍDA OBRIGATÓRIO ━━━
 
@@ -187,9 +218,9 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
   "items": [
     {
       "id": 1,
-      "criterio": "nome oficial do critério",
-      "requisito": "ex: 9.1",
-      "qualificador": "Obrigatório",
+      "criterio": "nome oficial do critério conforme Anexo II",
+      "requisito": "número real do requisito no Anexo II para este item (ex: 5.1, 5.3, 6.2) — VARIA por item",
+      "qualificador": "Obrigatório ou Recomendável — conforme classificação do requisito no Anexo II",
       "doc_codigo": "código do documento",
       "doc_versao": "versão/revisão ou '-'",
       "doc_nome": "nome completo do documento",
@@ -206,6 +237,7 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
 
 REGRAS CRÍTICAS:
 - "processo_auditado" DEVE ser transcrição verbatim (palavra por palavra) do documento — NUNCA parafrasear
+- "requisito" DEVE variar entre os itens — leia o Anexo II e mapeie cada processo ao seu requisito correto
 - Gere quantas linhas forem necessárias — não há limite de 22 itens
 - Extraia TODOS os trechos auditáveis relevantes para o critério ${criterio}
 - Não toque nas colunas Q em diante (etapa de conformidade)`
@@ -214,7 +246,27 @@ REGRAS CRÍTICAS:
 Cliente: ${cliente}
 
 Analise os documentos abaixo e preencha o checklist de auditoria conforme as instruções.
+Para cada item, identifique o requisito correto no Anexo II (coluna E) e o qualificador (coluna F).
 Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
+
+    // ── Monta conteúdo da mensagem ────────────────────────────────────────────
+    // Ordem: Anexo II (estável, cacheável) → instrução variável → docs do cliente
+    // O Anexo II vem primeiro para que o cache_control abranja só o bloco estável.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const userContent: any[] = []
+
+    if (anexoIIBase64) {
+      userContent.push({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: anexoIIBase64 },
+        title: 'Anexo II — Portaria Coana nº 154/2024 (Requisitos e Qualificadores OEA)',
+        // Cache do Anexo II (fixo entre requisições) — lido uma vez, reutilizado nas seguintes
+        cache_control: { type: 'ephemeral' },
+      })
+    }
+
+    userContent.push({ type: 'text', text: userMessage })
+    userContent.push(...docBlocks)
 
     // ── Chamada à API do Claude ───────────────────────────────────────────────
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -222,15 +274,20 @@ Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
     const message = await client.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 16000,
-      system:     systemPrompt,
+      // Cache do prompt mestre (estável entre requisições)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
       messages: [{
         role:    'user',
-        content: [
-          { type: 'text', text: userMessage },
-          ...docBlocks,
-        ],
+        content: userContent,
       }],
     })
+
+    console.log(
+      '[checklist/generate] cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
+      '| cache_read:', message.usage?.cache_read_input_tokens ?? 0,
+      '| input:', message.usage?.input_tokens,
+    )
 
     const rawText = message.content
       .filter(b => b.type === 'text')

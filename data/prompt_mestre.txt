@@ -1,0 +1,112 @@
+# Prompt Mestre — Módulo de Preenchimento Automático de Checklist de Auditoria OEA
+
+## Objetivo
+
+Preencher as colunas **A até P** da planilha modelo "Monitoramento OEA - Empresa - Checklist" para o(s) requisito(s) do **critério previamente selecionado pelo colaborador** (Segurança da Informação, Parceiros Comerciais, Segurança Física, Segurança de Carga e Contêineres, Segurança de Pessoal, Educação/Treinamento e Conscientização, Gestão de Riscos, ou qualquer outro critério do programa OEA), extraindo dos procedimentos e políticas do cliente **somente os trechos auditáveis** que geram ação de verificação e que se relacionam a um requisito daquele critério. Este módulo cobre exclusivamente a etapa de **estrutura do checklist**. Não avalia atendimento, não classifica conformidade e não preenche as colunas Q em diante — essa é uma etapa posterior e separada.
+
+O módulo é **agnóstico de critério**: a lógica de extração, granularidade e preenchimento de colunas é sempre a mesma, independentemente de qual critério OEA está sendo trabalhado. O que muda a cada execução é apenas: (a) o critério/requisitos selecionados, (b) os documentos do cliente relevantes para aquele critério, e (c) o texto oficial dos requisitos daquele critério.
+
+## Inputs
+
+1. **Critério e requisito(s) selecionados pelo colaborador** antes da execução (ex.: "Segurança da Informação, todos os requisitos", "Parceiros Comerciais, requisito 3.2", "Segurança de Carga, requisitos 7.1 a 7.5"). O módulo não deve rodar sobre todos os critérios de uma vez sem essa seleção prévia — sempre um critério por execução.
+2. **Documentos do cliente cadastrados na base de conhecimento da plataforma** para o critério selecionado (políticas, procedimentos, normas, instruções de trabalho, manuais, contratos-modelo, planos etc., conforme aplicável ao critério).
+3. **Planilha modelo "Monitoramento OEA - Empresa - Checklist"**, cuja estrutura de colunas deve ser preservada exatamente, qualquer que seja o critério.
+
+## Fontes de conhecimento a combinar
+
+O preenchimento deve cruzar duas fontes, nessa ordem de prioridade:
+
+1. **Conhecimento próprio sobre o programa OEA** — o Anexo II da Portaria Coana nº 154/2024 e demais normativos vigentes da RFB, cobrindo todos os critérios do programa (Segurança da Informação, Segurança Física, Segurança de Pessoal, Segurança de Carga e Contêineres, Parceiros Comerciais, Gestão de Riscos, Educação e Conscientização, entre outros) — usado para saber *o que* precisa ser verificado em cada requisito do critério selecionado e *qual* a linguagem normativa oficial de cada um.
+2. **Documentos do cliente na base de conhecimento** para o critério selecionado — usados para saber *como aquele cliente específico* diz que cumpre cada requisito, com a redação exata dele.
+
+O texto do requisito OEA (colunas E/F) nunca deve ser inventado ou parafraseado a partir de memória — deve refletir o texto oficial do Anexo II para aquele critério. O processo auditado (coluna M) nunca deve vir do conhecimento geral do Claude — deve ser sempre transcrição literal do documento do cliente.
+
+## Regra de filtragem: o que é "auditável"
+
+Nem todo trecho de uma política, procedimento ou manual é um item de checklist, independentemente do critério. Extrair apenas passagens que:
+
+- Estabelecem uma **obrigação, controle, rotina ou responsabilidade verificável**, do tipo de conteúdo relevante para o critério em questão (ex., em Segurança Física: "o perímetro é inspecionado diariamente pela equipe de portaria"; em Parceiros Comerciais: "todo novo fornecedor deve preencher questionário de due diligence antes da contratação"; em Segurança de Carga: "os lacres são conferidos e registrados no momento do carregamento").
+- Têm **correspondência direta com um requisito OEA** do critério selecionado.
+- Permitem definir uma **evidência objetiva** que comprove ou não o cumprimento.
+
+Não extrair:
+
+- Definições, glossários, conceitos teóricos ou contextualização histórica (ex.: "o que é um lacre de alta segurança", "o que é engenharia social", "conceito de risco").
+- Declarações de intenção sem controle associado (ex.: "a segurança é importante para o negócio", "a empresa valoriza a integridade de seus parceiros").
+- Trechos institucionais (objetivo do documento, elaboração/aprovação, sumário, controle de revisões) — exceto quando o próprio trecho institucional for o objeto do requisito (ex.: um requisito que exige revisão periódica de uma política pode ser evidenciado pelo próprio histórico de revisões do documento, qualquer que seja o critério).
+
+## Regra de granularidade: uma linha = um controle = uma seção
+
+Não consolidar múltiplos controles distintos em uma única linha, mesmo que pertençam ao mesmo requisito OEA. Se um requisito é sustentado por vários controles diferentes no mesmo documento (ex., em Segurança Física: iluminação, CFTV e controle de acesso de visitantes sustentando o mesmo requisito de perímetro), criar uma linha para cada controle/seção. O número de linhas do modelo é apenas um ponto de partida; **expandir a planilha em quantas linhas forem necessárias** para não deixar nenhum controle relevante de fora e para não misturar assuntos na mesma linha.
+
+Cada linha deve referenciar exatamente **uma seção** do documento de origem (não abranger múltiplas seções na mesma linha M/J/K/L).
+
+## Especificação coluna a coluna
+
+| Coluna | Conteúdo | Regra |
+|---|---|---|
+| **A** — ID | Número sequencial da linha | Sequencial dentro do critério selecionado, começando em 1 |
+| **B** — Data auditoria | Deixar em branco | Preenchido manualmente na fase de campo |
+| **C** — Auditor Responsável | Deixar em branco | Preenchido manualmente |
+| **D** — Critério | Nome do critério selecionado | Ex.: "Segurança da Informação", "Segurança Física", "Parceiros Comerciais", "Segurança de Carga e Contêineres" — sempre o nome oficial do critério conforme o Anexo II |
+| **E** — Requisito | Número do requisito OEA dentro do critério selecionado | Sempre extraído do Anexo II referente àquele critério específico, nunca inventado |
+| **F** — Qualificador | "Obrigatório" ou "Recomendável" | Conforme classificação oficial do requisito no Anexo II para aquele critério |
+| **G** — Documento (Código) | Código/nome do documento do cliente | Ex.: "POP TI 02", "PSI001", "NP-SEG-04", "MAN-RH-12" — qualquer tipo de documento aplicável ao critério |
+| **H** — Documento (Versão) | Versão/revisão do documento | Extrair do cabeçalho/rodapé do documento; usar "-" se não houver |
+| **I** — Documento (Nome) | Nome do documento | Ex.: "Política de Segurança da Informação", "Procedimento de Controle de Acesso de Visitantes", "Manual de Due Diligence de Fornecedores" |
+| **J** — Item (número) | Número da seção principal onde o trecho está | Ex.: "5", "6", "7" — conforme sumário/numeração do próprio documento, nunca a numeração do requisito OEA |
+| **K** — Item (Nome) | Nome **exato** dessa seção, como está escrito no documento | Nunca parafrasear; copiar literalmente o título da seção (ex.: "PROCEDIMENTOS", "CONTROLE DE ACESSO", "GESTÃO DE FORNECEDORES") |
+| **L** — Subitem/Tema | Subseção específica, no formato "número - nome" | Ex.: "5.5.4 - Medidas Disciplinares", "6.2 - Inspeção de Veículos"; usar "-" se o controle não tiver subitem próprio |
+| **M** — Processo auditado | **Texto exato, transcrito literalmente** do documento do cliente | Proibido parafrasear, resumir ou reescrever. Copiar o trecho palavra por palavra, incluindo eventuais erros de digitação do original, independentemente do assunto ou critério |
+| **N** — Período analisado | Janela temporal que a evidência deve cobrir | "Atual" para configurações/situações vigentes; "Últimos 12 meses", "Últimos 3 meses" etc. para rotinas periódicas — inferir a partir da periodicidade que o próprio requisito ou processo do cliente estabelece |
+| **O** — Evidência | Descrição da evidência **esperada** que o cliente deverá enviar para comprovar o controle | Redigir do zero (não é transcrição) — deve ser específica e verificável, indicando o tipo de documento/print/relatório/registro esperado e o que ele precisa demonstrar, adequado à natureza do critério (documental, fotográfica, sistêmica etc.) |
+| **P** — Metodologia de análise | Como o auditor deve verificar a evidência quando ela chegar | Frase no padrão "Verificar, por meio de..., se..." — descreve o procedimento de checagem, não o resultado |
+
+### Colunas fora de escopo neste módulo
+
+**Q até AB** (Atendimento, Pendências, Documentos Apresentados, Constatação, Não Conformidades, Recomendações, Requisitos não aplicáveis) pertencem à etapa de **avaliação de conformidade**, que só ocorre depois que o cliente enviar as evidências solicitadas na coluna O. Este módulo não deve tocar nessas colunas, em nenhum critério.
+
+## Casos especiais
+
+- **Documento digitalizado sem camada de texto (imagem/scan):** ler visualmente página a página antes de descartar o documento como sem conteúdo relevante — vale para plantas de perímetro, fotos de CFTV, certificados digitalizados etc., não apenas para documentos de SI.
+- **Requisito OEA sem controle correspondente em nenhum documento do cliente:** ainda assim criar a linha com E/F/N/O/P preenchidos (o que se espera do requisito) e sinalizar em M que não foi localizado processo correspondente nos documentos — não omitir o requisito do checklist, independentemente do critério.
+- **Mesmo texto sustentando mais de um requisito:** se um único trecho do documento atende a dois requisitos OEA distintos do mesmo critério (ou até de critérios diferentes, quando aplicável), duplicar a linha, uma para cada requisito, mantendo M idêntico mas ajustando E/O/P a cada requisito.
+- **Numeração do documento do cliente diferente da numeração do OEA:** sempre preservar a numeração original do documento nas colunas J/K/L; a coluna E é o único lugar onde entra a numeração OEA.
+- **Critérios com documentos não textuais como evidência primária** (ex.: Segurança Física com plantas/mapas, Segurança de Carga com fotos de lacres): a coluna M ainda deve conter o texto do procedimento que rege o controle (ex.: a norma que descreve a inspeção), e a coluna O deve especificar o tipo de evidência visual/fotográfica esperada.
+
+## Regras de integridade
+
+- Nunca fabricar código de documento, versão ou trecho que não exista nos arquivos fornecidos.
+- Nunca usar dados, exemplos ou documentos de outro cliente para preencher a linha de um cliente diferente.
+- Nunca usar documentos ou requisitos de um critério para preencher linhas de outro critério, mesmo que pareçam relacionados.
+- Se o mesmo assunto aparecer em mais de um documento do cliente, escolher o documento mais específico/normativo (procedimento > política genérica) e citar ambos em G se relevante.
+- Preservar acentuação, siglas e formatação de números tal como aparecem no original.
+
+## Exemplo de aplicação (padrão replicável a qualquer critério)
+
+Trecho do documento do cliente (POP TI 02, seção 5) — critério Segurança da Informação:
+
+> "As proibições são imprescindíveis para preservar a integridade e segurança da informação na empresa. Em caso de violação da política de segurança da informação (PSI), serão aplicadas, ao infrator, as seguintes medidas disciplinares: Advertência Verbal – Registro no Termo de Registro de Ocorrências; Advertência Escrita; Suspensão; Dispensa por Justa Causa."
+
+Preenchimento resultante:
+
+| Coluna | Valor |
+|---|---|
+| D | Segurança da Informação |
+| E | 5.1 |
+| F | Obrigatório |
+| G/H/I | POP TI 02 / 08 / Segurança da Informação |
+| J | 5 |
+| K | PROCEDIMENTOS |
+| L | 5.5.4 - Medidas Disciplinares |
+| M | *(texto acima, exatamente como está)* |
+| N | Atual |
+| O | Política de Segurança da Informação formalizada e aprovada, contemplando as medidas disciplinares aplicáveis aos infratores, acompanhada de evidência de divulgação/ciência aos colaboradores |
+| P | Verificar se existe política formalizada e aprovada que preveja medidas disciplinares aplicáveis aos infratores |
+
+O mesmo padrão de extração se aplica, por exemplo, a um procedimento de Segurança Física ("o acesso de visitantes é registrado em livro de portaria e acompanhado por colaborador durante toda a permanência") ou de Parceiros Comerciais ("todo fornecedor de serviços logísticos deve apresentar certidões negativas antes da assinatura do contrato") — a lógica de M (verbatim), O (evidência redigida) e P (metodologia) não muda.
+
+## Entregável
+
+Planilha no mesmo layout do modelo "Monitoramento OEA - Empresa - Checklist", com as colunas A–P preenchidas para o critério/requisito selecionado, nomeada como:
+`Monitoramento OEA - [CLIENTE] - Checklist Auditoria [ANO] ([CRITÉRIO]) - rev [INICIAIS] [DDMêsAAAA]`
