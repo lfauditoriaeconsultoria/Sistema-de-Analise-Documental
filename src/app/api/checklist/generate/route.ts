@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import * as fs from 'fs'
 import * as path from 'path'
 import ExcelJS from 'exceljs'
+import { createAdminClient } from '@/lib/supabase/admin'
 // mammoth não tem types default export — usar require
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const mammoth = require('mammoth') as typeof import('mammoth')
@@ -32,14 +33,40 @@ function loadTemplate(): Buffer {
   return fs.readFileSync(p)
 }
 
-/** Lê o Anexo II da Portaria Coana nº 154/2024 como base64 para enviar ao Claude */
-function loadAnexoII(): string | null {
-  const p = path.join(process.cwd(), 'data', 'ANEXO II.pdf')
-  if (!fs.existsSync(p)) {
-    console.warn('[checklist/generate] ANEXO II.pdf não encontrado em', p)
-    return null
-  }
-  return fs.readFileSync(p).toString('base64')
+/* ── Tipos locais para dados de critérios do banco ── */
+interface OeaItemRow {
+  item_number: string
+  description: string
+}
+interface OeaCriteriaRow {
+  number: number
+  name: string
+  description: string | null
+  items: OeaItemRow[]
+}
+
+/**
+ * Formata os dados do critério OEA como texto estruturado para o Claude.
+ * Substitui o Anexo II PDF — muito mais barato em tokens (~500–2.000 vs 8.000–15.000).
+ */
+function buildCriteriaContext(criteria: OeaCriteriaRow): string {
+  const sorted = [...(criteria.items ?? [])].sort((a, b) => {
+    const toNum = (s: string) => {
+      const parts = s.split('.').map(Number)
+      return parts[0] * 1000 + (parts[1] ?? 0)
+    }
+    return toNum(a.item_number) - toNum(b.item_number)
+  })
+
+  const lines = sorted.map(item => `• ${item.item_number} — ${item.description}`).join('\n')
+
+  return [
+    `CRITÉRIO OEA Nº ${criteria.number} — ${criteria.name}`,
+    criteria.description ? criteria.description : '',
+    '',
+    'Requisitos oficiais do Programa OEA para este critério:',
+    lines,
+  ].filter(l => l !== null).join('\n').trim()
 }
 
 /* ── Item de checklist gerado pela IA ── */
@@ -195,19 +222,47 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
     }
 
+    // ── Busca critério OEA no banco (substitui Anexo II PDF — muito mais barato) ──
+    let criteriaContext: string | null = null
+    try {
+      const admin = createAdminClient()
+      const { data: criteriaRow, error } = await admin
+        .from('oea_criteria')
+        .select('number, name, description, items:oea_items(item_number, description)')
+        .ilike('name', criterio)
+        .single()
+
+      if (error) {
+        console.warn('[checklist/generate] critério não encontrado no banco:', criterio, error.message)
+      } else if (criteriaRow) {
+        criteriaContext = buildCriteriaContext(criteriaRow as OeaCriteriaRow)
+        console.log('[checklist/generate] critério carregado do banco:', criteriaRow.name, '| itens:', (criteriaRow as OeaCriteriaRow).items?.length ?? 0)
+      }
+    } catch (dbErr) {
+      console.warn('[checklist/generate] falha ao consultar banco — prosseguindo sem contexto:', dbErr)
+    }
+
     // ── Prompt mestre ─────────────────────────────────────────────────────────
     const promptMestre = loadPromptMestre()
-    const anexoIIBase64 = loadAnexoII()
+
+    const normativaSection = criteriaContext
+      ? `━━━ REFERÊNCIA NORMATIVA ━━━
+
+Os requisitos oficiais do critério "${criterio}" do Programa OEA foram extraídos do banco de dados do sistema.
+Use-os como fonte definitiva para preencher as colunas E (requisito) e F (qualificador).
+CADA ITEM deve ter o requisito correto conforme a lista abaixo — os números VARIAM por item, nunca repita o mesmo.
+O QUALIFICADOR de cada requisito é "Obrigatório" ou "Recomendável" conforme o Programa OEA — use seu conhecimento para determinar.
+
+${criteriaContext}`
+      : `━━━ REFERÊNCIA NORMATIVA ━━━
+
+Use seu conhecimento do Programa OEA (Portaria Coana nº 154/2024) para identificar o requisito
+correto de cada processo auditado. Os números VARIAM por item — nunca repita o mesmo requisito.
+O qualificador ("Obrigatório" ou "Recomendável") segue a classificação oficial do programa.`
 
     const systemPrompt = `${promptMestre}
 
-━━━ REFERÊNCIA NORMATIVA ━━━
-
-O Anexo II da Portaria Coana nº 154/2024 está anexado como PRIMEIRO documento na mensagem.
-Use-o como fonte direta e definitiva para preencher as colunas E (requisito) e F (qualificador).
-CADA ITEM pode ter um requisito diferente — nunca repita o mesmo número para todos os itens.
-Consulte o Anexo II para identificar qual requisito corresponde ao conteúdo de cada processo auditado.
-Não use memória ou inferência para esses campos — use exclusivamente o Anexo II anexado.
+${normativaSection}
 
 ━━━ FORMATO DE SAÍDA OBRIGATÓRIO ━━━
 
@@ -218,9 +273,9 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
   "items": [
     {
       "id": 1,
-      "criterio": "nome oficial do critério conforme Anexo II",
-      "requisito": "número real do requisito no Anexo II para este item (ex: 5.1, 5.3, 6.2) — VARIA por item",
-      "qualificador": "Obrigatório ou Recomendável — conforme classificação do requisito no Anexo II",
+      "criterio": "nome oficial do critério OEA",
+      "requisito": "número do requisito para este item (ex: 5.1, 5.3, 6.2) — VARIA por item",
+      "qualificador": "Obrigatório ou Recomendável — conforme classificação no Programa OEA",
       "doc_codigo": "código do documento",
       "doc_versao": "versão/revisão ou '-'",
       "doc_nome": "nome completo do documento",
@@ -237,7 +292,7 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
 
 REGRAS CRÍTICAS:
 - "processo_auditado" DEVE ser transcrição verbatim (palavra por palavra) do documento — NUNCA parafrasear
-- "requisito" DEVE variar entre os itens — leia o Anexo II e mapeie cada processo ao seu requisito correto
+- "requisito" DEVE variar entre os itens — mapeie cada processo ao seu requisito correto
 - Gere quantas linhas forem necessárias — não há limite de 22 itens
 - Extraia TODOS os trechos auditáveis relevantes para o critério ${criterio}
 - Não toque nas colunas Q em diante (etapa de conformidade)`
@@ -246,25 +301,12 @@ REGRAS CRÍTICAS:
 Cliente: ${cliente}
 
 Analise os documentos abaixo e preencha o checklist de auditoria conforme as instruções.
-Para cada item, identifique o requisito correto no Anexo II (coluna E) e o qualificador (coluna F).
+Para cada item, identifique o requisito correto (coluna E) e o qualificador (coluna F).
 Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
 
     // ── Monta conteúdo da mensagem ────────────────────────────────────────────
-    // Ordem: Anexo II (estável, cacheável) → instrução variável → docs do cliente
-    // O Anexo II vem primeiro para que o cache_control abranja só o bloco estável.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userContent: any[] = []
-
-    if (anexoIIBase64) {
-      userContent.push({
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: anexoIIBase64 },
-        title: 'Anexo II — Portaria Coana nº 154/2024 (Requisitos e Qualificadores OEA)',
-        // Cache do Anexo II (fixo entre requisições) — lido uma vez, reutilizado nas seguintes
-        cache_control: { type: 'ephemeral' },
-      })
-    }
-
     userContent.push({ type: 'text', text: userMessage })
     userContent.push(...docBlocks)
 
