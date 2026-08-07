@@ -7,6 +7,7 @@ export interface OeaItem {
   criteria_id: string
   item_number: string
   description: string
+  qualificador: 'Obrigatório' | 'Recomendável'
   created_at: string
 }
 

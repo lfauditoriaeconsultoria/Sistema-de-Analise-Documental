@@ -37,6 +37,7 @@ function loadTemplate(): Buffer {
 interface OeaItemRow {
   item_number: string
   description: string
+  qualificador: string
 }
 interface OeaCriteriaRow {
   number: number
@@ -48,6 +49,7 @@ interface OeaCriteriaRow {
 /**
  * Formata os dados do critério OEA como texto estruturado para o Claude.
  * Substitui o Anexo II PDF — muito mais barato em tokens (~500–2.000 vs 8.000–15.000).
+ * Inclui qualificador (Obrigatório/Recomendável) diretamente do banco.
  */
 function buildCriteriaContext(criteria: OeaCriteriaRow): string {
   const sorted = [...(criteria.items ?? [])].sort((a, b) => {
@@ -58,15 +60,17 @@ function buildCriteriaContext(criteria: OeaCriteriaRow): string {
     return toNum(a.item_number) - toNum(b.item_number)
   })
 
-  const lines = sorted.map(item => `• ${item.item_number} — ${item.description}`).join('\n')
+  const lines = sorted
+    .map(item => `• ${item.item_number} [${item.qualificador}] — ${item.description}`)
+    .join('\n')
 
   return [
     `CRITÉRIO OEA Nº ${criteria.number} — ${criteria.name}`,
-    criteria.description ? criteria.description : '',
+    criteria.description ?? '',
     '',
-    'Requisitos oficiais do Programa OEA para este critério:',
+    'Requisitos oficiais do Programa OEA para este critério (número, qualificador e descrição):',
     lines,
-  ].filter(l => l !== null).join('\n').trim()
+  ].join('\n').trim()
 }
 
 /* ── Item de checklist gerado pela IA ── */
@@ -228,7 +232,7 @@ export async function POST(req: NextRequest) {
       const admin = createAdminClient()
       const { data: criteriaRow, error } = await admin
         .from('oea_criteria')
-        .select('number, name, description, items:oea_items(item_number, description)')
+        .select('number, name, description, items:oea_items(item_number, description, qualificador)')
         .ilike('name', criterio)
         .single()
 
@@ -248,10 +252,16 @@ export async function POST(req: NextRequest) {
     const normativaSection = criteriaContext
       ? `━━━ REFERÊNCIA NORMATIVA ━━━
 
-Os requisitos oficiais do critério "${criterio}" do Programa OEA foram extraídos do banco de dados do sistema.
-Use-os como fonte definitiva para preencher as colunas E (requisito) e F (qualificador).
-CADA ITEM deve ter o requisito correto conforme a lista abaixo — os números VARIAM por item, nunca repita o mesmo.
-O QUALIFICADOR de cada requisito é "Obrigatório" ou "Recomendável" conforme o Programa OEA — use seu conhecimento para determinar.
+Os requisitos oficiais do critério "${criterio}" foram extraídos do banco de dados do sistema.
+Use esta lista como fonte DEFINITIVA para as colunas E (requisito) e F (qualificador).
+
+Cada linha abaixo tem o formato:
+  • NÚMERO [QUALIFICADOR] — descrição do requisito
+
+Regras:
+- "requisito" (coluna E): use exatamente o NÚMERO do item (ex: 5.1, 5.3).
+- "qualificador" (coluna F): copie exatamente o valor entre colchetes — "Obrigatório" ou "Recomendável".
+- NUNCA repita o mesmo número de requisito para todos os itens — cada processo auditado mapeia para seu requisito específico.
 
 ${criteriaContext}`
       : `━━━ REFERÊNCIA NORMATIVA ━━━
