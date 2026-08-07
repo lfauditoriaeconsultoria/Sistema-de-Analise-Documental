@@ -383,13 +383,21 @@ Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
     const xlsxBytes      = await fillTemplate(templateBuffer, items)
     const filename       = buildFilename(cliente, criterio)
 
+    // Encode UTF-8 para evitar corrupção de acentos nos headers HTTP (Latin-1 por padrão).
+    // Content-Disposition usa RFC 5987: filename* com percent-encoding é o padrão correto.
+    // X-Filename também é encodado; o frontend decodifica com decodeURIComponent().
+    const filenameXlsx  = `${filename}.xlsx`
+    const filenameAscii = filenameXlsx.replace(/[^\x20-\x7E]/g, '_')    // fallback ASCII
+    const filenameEnc   = encodeURIComponent(filenameXlsx)              // RFC 5987 / custom header
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return new Response(xlsxBytes as any, {
       headers: {
         'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
+        // filename= (fallback ASCII para clientes antigos) + filename*= (RFC 5987, suporte moderno)
+        'Content-Disposition': `attachment; filename="${filenameAscii}"; filename*=UTF-8''${filenameEnc}`,
         'Content-Length':      String(xlsxBytes.byteLength),
-        'X-Filename':          `${filename}.xlsx`,
+        'X-Filename':          filenameEnc,
         'X-Items-Count':       String(items.length),
       },
     })

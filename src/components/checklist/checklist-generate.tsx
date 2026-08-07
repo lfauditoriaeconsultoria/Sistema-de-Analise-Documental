@@ -112,9 +112,11 @@ export function ChecklistGenerate() {
         throw new Error(j.error ?? `Erro ${res.status}`)
       }
 
-      const blob     = await res.blob()
-      const filename = res.headers.get('X-Filename') ?? 'checklist.xlsx'
-      const count    = Number(res.headers.get('X-Items-Count') ?? 0)
+      const blob        = await res.blob()
+      const rawFilename = res.headers.get('X-Filename') ?? 'checklist.xlsx'
+      // X-Filename é enviado percent-encoded (encodeURIComponent) para preservar acentos
+      const filename    = decodeURIComponent(rawFilename)
+      const count       = Number(res.headers.get('X-Items-Count') ?? 0)
 
       setResult({ filename, blob, count })
       setStage('done')
