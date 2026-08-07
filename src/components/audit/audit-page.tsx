@@ -18,8 +18,8 @@ const options: AuditOption[] = [
     title: 'Elaborar Checklist',
     description:
       'Crie uma planilha de auditoria personalizada com base nos procedimentos e documentos de referência de cada cliente.',
-    enabled: false,
-    badge: 'Em breve',
+    href: '/checklist/generate',
+    enabled: true,
   },
   {
     icon: <FileCheck size={32} />,
