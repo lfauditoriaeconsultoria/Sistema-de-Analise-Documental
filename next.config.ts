@@ -5,11 +5,10 @@ const nextConfig: NextConfig = {
   // Inclui a pasta data/ no bundle das funções serverless do Vercel.
   // Sem isso, fs.readFileSync falha em produção porque os arquivos não são
   // copiados automaticamente para o ambiente de execução.
-  experimental: {
-    outputFileTracingIncludes: {
-      '/api/checklist/generate': ['./data/**/*'],
-      '/api/audit/generate':     ['./data/**/*'],
-    },
+  // No Next.js 16 essa opção saiu de `experimental` para o nível raiz.
+  outputFileTracingIncludes: {
+    '/api/checklist/generate': ['./data/**/*'],
+    '/api/audit/generate':     ['./data/**/*'],
   },
 };
 
