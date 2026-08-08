@@ -11,16 +11,10 @@ const mammoth = require('mammoth') as typeof import('mammoth')
 
 export const maxDuration = 300
 
-/* ── Nomes dos meses em português para o filename ── */
-const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
-
-function buildFilename(cliente: string, criterio: string): string {
-  const now  = new Date()
-  const dd   = String(now.getDate()).padStart(2, '0')
-  const mes  = MESES[now.getMonth()]
-  const yyyy = now.getFullYear()
-  const safe = (s: string) => s.replace(/[/\\:*?"<>|]/g, '-')
-  return safe(`Monitoramento OEA - ${cliente} - Checklist Auditoria ${yyyy} (${criterio}) - rev LF ${dd}${mes}${yyyy}`)
+function buildFilename(cliente: string): string {
+  // Remove caracteres inválidos em nomes de arquivo (Windows/Mac/Linux)
+  const safe = (s: string) => s.replace(/[/\\:*?"<>|]/g, '-').trim()
+  return safe(`Monitoramento OEA - ${cliente} - Checklist de Auditoria`)
 }
 
 /* ── Lê os arquivos de configuração da pasta data/ (dentro do projeto) ── */
@@ -382,7 +376,7 @@ Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
     // ── Preenche o template Excel ──────────────────────────────────────────────
     const templateBuffer = loadTemplate()
     const xlsxBytes      = await fillTemplate(templateBuffer, items)
-    const filename       = buildFilename(cliente, criterio)
+    const filename       = buildFilename(cliente)
 
     // Encode UTF-8 para evitar corrupção de acentos nos headers HTTP (Latin-1 por padrão).
     // Content-Disposition usa RFC 5987: filename* com percent-encoding é o padrão correto.
