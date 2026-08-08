@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const maxDuration = 300
 
@@ -120,10 +121,71 @@ function loadPromptTxt(): string {
   return fs.readFileSync(txtPath, 'utf-8')
 }
 
-function buildSystemPrompt(promptTxt: string): string {
+/** Converte "5.13" → 5013 para ordenação numérica correta */
+function itemNumToInt(s: string): number {
+  const [major, minor = '0'] = s.split('.')
+  return parseInt(major, 10) * 1000 + parseInt(minor, 10)
+}
+
+/**
+ * Consulta o banco e devolve um mapa criterio_name → texto do campo "requisitos".
+ * Ex: "Segurança da Informação" → "Requisitos 5.1 a 5.13 do Programa Brasileiro de OEA"
+ * Retorna null se a consulta falhar (fallback para Claude inferir).
+ */
+async function loadRequisitosTable(): Promise<Map<string, string> | null> {
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin
+      .from('oea_criteria')
+      .select('name, items:oea_items(item_number)')
+      .order('number')
+
+    if (error || !data?.length) {
+      console.warn('[audit/generate] falha ao carregar critérios do banco:', error?.message)
+      return null
+    }
+
+    const table = new Map<string, string>()
+    for (const c of data) {
+      const items = (c.items ?? []) as { item_number: string }[]
+      if (!items.length) continue
+
+      const sorted = items.map(i => i.item_number).sort((a, b) => itemNumToInt(a) - itemNumToInt(b))
+      const min = sorted[0]
+      const max = sorted[sorted.length - 1]
+      table.set(c.name, `Requisitos ${min} a ${max} do Programa Brasileiro de Operador Econômico Autorizado (OEA)`)
+    }
+
+    console.log('[audit/generate] tabela de requisitos carregada:', table.size, 'critérios')
+    return table
+  } catch (err) {
+    console.warn('[audit/generate] erro ao carregar tabela de requisitos:', err)
+    return null
+  }
+}
+
+/** Formata a tabela de requisitos como bloco de texto para o prompt */
+function formatRequisitosTable(table: Map<string, string>): string {
+  const rows = [...table.entries()]
+    .map(([nome, texto]) => `  • ${nome}: "${texto}"`)
+    .join('\n')
+  return rows
+}
+
+function buildSystemPrompt(promptTxt: string, requisitosTable: Map<string, string> | null): string {
+  const requisitosSection = requisitosTable
+    ? `━━━ TABELA DE REQUISITOS POR CRITÉRIO (fonte definitiva) ━━━
+
+Os textos abaixo foram pré-calculados com base no banco de dados oficial do programa.
+Para o campo "requisitos", identifique o critério auditado e copie EXATAMENTE o texto correspondente da tabela.
+PROIBIDO calcular o intervalo pelos itens da planilha. PROIBIDO listar requisitos individualmente.
+
+${formatRequisitosTable(requisitosTable)}`
+    : ''
+
   return `Você é um auditor sênior da LF Auditoria e Consultoria especializado em OEA.
 
-${promptTxt ? `INSTRUÇÕES DE ANÁLISE E REDAÇÃO:\n${promptTxt}\n\n---\n\n` : ''}FORMATO DE SAÍDA — OBRIGATÓRIO:
+${requisitosSection ? requisitosSection + '\n\n' : ''}${promptTxt ? `INSTRUÇÕES DE ANÁLISE E REDAÇÃO:\n${promptTxt}\n\n---\n\n` : ''}FORMATO DE SAÍDA — OBRIGATÓRIO:
 As instruções acima descrevem a estrutura, o conteúdo e as regras de redação do relatório.
 O modelo visual foi enviado como documento PDF — use-o como referência de layout, campos e estilo.
 NÃO gere arquivos PDF ou Word diretamente. O sistema renderizará o relatório automaticamente.
@@ -140,7 +202,7 @@ JSON ESPERADO:
 {
   "empresa": "razão social da empresa auditada",
   "criterio": "critério auditado completo",
-  "requisitos": "FORMATO FIXO OBRIGATÓRIO: 'Requisitos X.X a Y.Y do Programa Brasileiro de Operador Econômico Autorizado (OEA)' — onde X.X é o MENOR número de requisito da planilha e Y.Y é o MAIOR. PROIBIDO listar requisitos individualmente. PROIBIDO incluir nomes de portarias ou documentos aqui. Somente o intervalo. Exemplo correto: 'Requisitos 5.1 a 5.13 do Programa Brasileiro de Operador Econômico Autorizado (OEA)'",
+  "requisitos": "CONSULTE A TABELA DE REQUISITOS acima e copie EXATAMENTE o texto do critério auditado. Não calcule, não modifique, não liste itens individualmente. Exemplo: 'Requisitos 5.1 a 5.13 do Programa Brasileiro de Operador Econômico Autorizado (OEA)'",
   "periodo": "período analisado",
   "metodologia": "metodologia aplicada",
   "auditor": "nome do auditor (vazio se não informado)",
@@ -213,9 +275,12 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Não foi possível extrair conteúdo da planilha.' }, { status: 400 })
     }
 
-    const modelPdfBase64 = loadModelPdf()
-    const promptTxt = loadPromptTxt()
-    const systemPrompt = buildSystemPrompt(promptTxt)
+    const [modelPdfBase64, promptTxt, requisitosTable] = await Promise.all([
+      Promise.resolve(loadModelPdf()),
+      Promise.resolve(loadPromptTxt()),
+      loadRequisitosTable(),
+    ])
+    const systemPrompt = buildSystemPrompt(promptTxt, requisitosTable)
 
     console.log('[audit/generate] system prompt length:', systemPrompt.length, '| pdf:', modelPdfBase64 ? 'sim' : 'não')
 
