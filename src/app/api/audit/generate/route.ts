@@ -376,6 +376,31 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Erro ao interpretar resposta da IA. Tente novamente.' }, { status: 500 })
     }
 
+    // ── Sobrescreve "requisitos" com o intervalo completo do banco ────────────
+    // Claude não determina esse valor — buscamos o intervalo definitivo pelo
+    // nome do critério que o Claude identificou e substituímos no JSON final.
+    // Isso garante "Requisitos X.X a Y.Y do Programa..." independente do que
+    // Claude tiver escrito (pode listar itens, usar texto diferente, etc.).
+    if (requisitosTable && typeof parsed.criterio === 'string') {
+      const criterioNome = parsed.criterio.trim()
+
+      // Tenta match exato primeiro, depois case-insensitive
+      let requisitosCorreto = requisitosTable.get(criterioNome)
+      if (!requisitosCorreto) {
+        const lower = criterioNome.toLowerCase()
+        for (const [key, val] of requisitosTable.entries()) {
+          if (key.toLowerCase() === lower) { requisitosCorreto = val; break }
+        }
+      }
+
+      if (requisitosCorreto) {
+        parsed.requisitos = requisitosCorreto
+        console.log('[audit/generate] requisitos definido pelo banco:', requisitosCorreto)
+      } else {
+        console.warn('[audit/generate] critério não encontrado na tabela:', criterioNome)
+      }
+    }
+
     return Response.json({ report: parsed })
   } catch (err) {
     console.error('[audit/generate]', err)
