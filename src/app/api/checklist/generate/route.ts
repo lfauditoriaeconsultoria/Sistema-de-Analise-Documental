@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import * as fs from 'fs'
 import * as path from 'path'
 import ExcelJS from 'exceljs'
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 // mammoth não tem types default export — usar require
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -389,6 +390,41 @@ Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
     const filenameXlsx  = `${filename}.xlsx`
     const filenameAscii = filenameXlsx.replace(/[^\x20-\x7E]/g, '_')    // fallback ASCII
     const filenameEnc   = encodeURIComponent(filenameXlsx)              // RFC 5987 / custom header
+
+    // ── Salva no histórico (best-effort — falha não interrompe o download) ────
+    try {
+      const supabase = await createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (user) {
+        const admin       = createAdminClient()
+        const checklistId = crypto.randomUUID()
+        const filePath    = `${user.id}/${checklistId}.xlsx`
+
+        const { error: uploadError } = await admin.storage
+          .from('checklists')
+          .upload(filePath, Buffer.from(xlsxBytes), {
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          })
+
+        if (uploadError) {
+          console.warn('[checklist/generate] upload storage falhou:', uploadError.message)
+        } else {
+          await admin.from('checklist_history').insert({
+            id:          checklistId,
+            user_id:     user.id,
+            cliente,
+            criterio,
+            filename:    filenameXlsx,
+            items_count: items.length,
+            file_path:   filePath,
+          })
+          console.log('[checklist/generate] salvo no histórico:', checklistId)
+        }
+      }
+    } catch (histErr) {
+      console.warn('[checklist/generate] falha ao salvar histórico:', histErr)
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return new Response(xlsxBytes as any, {

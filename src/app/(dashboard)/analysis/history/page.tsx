@@ -77,6 +77,34 @@ export default async function HistoryPage() {
     auditReports = ((data ?? []) as any[]).map((r: any) => ({ ...r, user_full_name: null }))
   }
 
+  // ── Checklists gerados ──
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let checklists: any[]
+  if (isAdmin) {
+    const { data } = await admin
+      .from('checklist_history')
+      .select('id, cliente, criterio, filename, items_count, created_at, user_id, profiles!user_id(full_name)')
+      .order('created_at', { ascending: false })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    checklists = ((data ?? []) as any[]).map((c: any) => ({
+      id:             c.id as string,
+      cliente:        c.cliente as string,
+      criterio:       c.criterio as string,
+      filename:       c.filename as string,
+      items_count:    c.items_count as number,
+      created_at:     c.created_at as string,
+      user_id:        c.user_id as string,
+      user_full_name: (Array.isArray(c.profiles) ? c.profiles[0]?.full_name : c.profiles?.full_name) ?? null,
+    }))
+  } else {
+    const { data } = await supabase
+      .from('checklist_history')
+      .select('id, cliente, criterio, filename, items_count, created_at, user_id')
+      .order('created_at', { ascending: false })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    checklists = ((data ?? []) as any[]).map((c: any) => ({ ...c, user_full_name: null }))
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (
     <UnifiedHistoryClient
@@ -84,6 +112,7 @@ export default async function HistoryPage() {
       themes={themes ?? []}
       isAdmin={isAdmin}
       auditReports={auditReports}
+      checklists={checklists}
     />
   )
 }
