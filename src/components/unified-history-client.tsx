@@ -9,7 +9,7 @@ import {
   Trash2, Loader2, ChevronRight, AlertTriangle, Download, FileSpreadsheet,
   ClipboardCheck, XCircle,
 } from 'lucide-react'
-import { Analysis, Theme } from '@/types'
+import { Analysis } from '@/types'
 import { Card } from '@/components/ui/card'
 import { Badge, ComplianceBadge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -819,8 +819,8 @@ export function UnifiedHistoryClient({ analyses, themes, isAdmin, auditReports, 
 
   const tabs = [
     { id: 'analyses'    as const, label: 'Análises de Documentos', count: analyses.length,     icon: <FileText        size={15} /> },
-    { id: 'checklists'  as const, label: 'Checklists',             count: checklists.length,   icon: <FileSpreadsheet size={15} /> },
-    { id: 'evaluations' as const, label: 'Análise de Evidências',  count: evaluations.length,  icon: <ClipboardCheck  size={15} /> },
+    { id: 'checklists'  as const, label: 'Elaboração de Checklists',   count: checklists.length,   icon: <FileSpreadsheet size={15} /> },
+    { id: 'evaluations' as const, label: 'Preenchimento de Checklists', count: evaluations.length,  icon: <ClipboardCheck  size={15} /> },
     { id: 'audit'       as const, label: 'Relatórios Executivos',  count: auditReports.length, icon: <ClipboardList   size={15} /> },
   ]
 
