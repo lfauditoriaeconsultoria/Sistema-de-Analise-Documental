@@ -10,36 +10,49 @@ interface AuditOption {
   href?: string
   enabled: boolean
   badge?: string
+  adminOnly?: boolean
 }
 
-const options: AuditOption[] = [
-  {
-    icon: <FileSpreadsheet size={32} />,
-    title: 'Elaborar Checklist',
-    description:
-      'Crie uma planilha de auditoria personalizada com base nos procedimentos e documentos de referência de cada cliente.',
-    href: '/checklist/generate',
-    enabled: true,
-  },
-  {
-    icon: <FileCheck size={32} />,
-    title: 'Preencher Checklist',
-    description:
-      'Preencha a planilha de auditoria com base nas evidências e nos documentos encaminhados pelo cliente.',
-    href: '/checklist/evaluate',
-    enabled: true,
-  },
-  {
-    icon: <FileText size={32} />,
-    title: 'Gerar Relatório Executivo',
-    description:
-      'Envie a planilha de auditoria preenchida e a IA gerará automaticamente um relatório executivo completo para download em PDF e Word.',
-    href: '/audit/generate',
-    enabled: true,
-  },
-]
+function getOptions(isAdmin: boolean): AuditOption[] {
+  return [
+    {
+      icon: <FileSpreadsheet size={32} />,
+      title: 'Elaborar Checklist',
+      description:
+        'Crie uma planilha de auditoria personalizada com base nos procedimentos e documentos de referência de cada cliente.',
+      href: '/checklist/generate',
+      enabled: isAdmin,
+      badge: isAdmin ? 'Beta' : undefined,
+      adminOnly: true,
+    },
+    {
+      icon: <FileCheck size={32} />,
+      title: 'Preencher Checklist',
+      description:
+        'Preencha a planilha de auditoria com base nas evidências e nos documentos encaminhados pelo cliente.',
+      href: '/checklist/evaluate',
+      enabled: isAdmin,
+      badge: isAdmin ? 'Beta' : undefined,
+      adminOnly: true,
+    },
+    {
+      icon: <FileText size={32} />,
+      title: 'Gerar Relatório Executivo',
+      description:
+        'Envie a planilha de auditoria preenchida e a IA gerará automaticamente um relatório executivo completo para download em PDF e Word.',
+      href: '/audit/generate',
+      enabled: true,
+    },
+  ]
+}
 
-export function AuditPage() {
+interface AuditPageProps {
+  isAdmin: boolean
+}
+
+export function AuditPage({ isAdmin }: AuditPageProps) {
+  const options = getOptions(isAdmin)
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -77,15 +90,22 @@ export function AuditPage() {
                 {index + 1}
               </div>
 
-              {/* Badge */}
+              {/* Badge (Beta / personalizado) */}
               {option.badge && (
                 <span className="absolute top-4 right-4 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#FEF3C7] dark:bg-amber-900/30 text-[#D97706] dark:text-amber-400 border border-[#FDE68A] dark:border-amber-700">
                   {option.badge}
                 </span>
               )}
 
-              {/* Disabled overlay icon */}
+              {/* Lock para opções sem badge e desativadas */}
               {!option.enabled && !option.badge && (
+                <div className="absolute top-4 right-4">
+                  <Lock size={14} className="text-[#94A3B8] dark:text-[#64748b]" />
+                </div>
+              )}
+
+              {/* Lock para opções adminOnly desativadas (sem badge) */}
+              {!option.enabled && option.adminOnly && (
                 <div className="absolute top-4 right-4">
                   <Lock size={14} className="text-[#94A3B8] dark:text-[#64748b]" />
                 </div>
@@ -132,7 +152,7 @@ export function AuditPage() {
               {!option.enabled && (
                 <div className="mt-2">
                   <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#94A3B8] dark:text-[#64748b]">
-                    Disponível em breve
+                    {option.adminOnly ? 'Restrito a administradores' : 'Disponível em breve'}
                   </span>
                 </div>
               )}
