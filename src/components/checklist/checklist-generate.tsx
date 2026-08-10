@@ -1,28 +1,23 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
-import { Upload, FileText, X, Loader2, CheckCircle2, Download, AlertCircle, ChevronDown, TableProperties } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import {
+  Upload, FileText, X, Loader2, CheckCircle2, Download,
+  AlertCircle, TableProperties, ChevronDown, Search, Check,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-/* ── Critérios OEA disponíveis ─────────────────────────────────────────────── */
-const OEA_CRITERIOS = [
-  'Segurança da Informação',
-  'Parceiros Comerciais',
-  'Segurança Física',
-  'Segurança de Carga e Contêineres',
-  'Segurança de Pessoal',
-  'Educação, Treinamento e Conscientização',
-  'Gestão de Riscos',
-  'Conformidade',
-  'Solvência Financeira',
-  'Gestão de Crises e Recuperação de Negócios',
-] as const
+import { createClient } from '@/lib/supabase/client'
 
 const ACCEPT_TYPES = '.pdf,.docx,.doc,.txt,.md'
 const MAX_FILE_MB  = 20
 const MAX_TOTAL_MB = 60
 
 /* ── Tipos ─────────────────────────────────────────────────────────────────── */
+interface OeaCriteria {
+  number: number
+  name:   string
+}
+
 interface UploadedFile {
   file: File
   id:   string
@@ -30,7 +25,7 @@ interface UploadedFile {
 
 type Stage = 'idle' | 'loading' | 'done' | 'error'
 
-/* ── Helpers ────────────────────────────────────────────────────────────────── */
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
 function fmtSize(bytes: number): string {
   return bytes < 1024 * 1024
     ? `${(bytes / 1024).toFixed(0)} KB`
@@ -38,29 +33,212 @@ function fmtSize(bytes: number): string {
 }
 
 function fileIcon(name: string) {
-  const ext = name.split('.').pop()?.toLowerCase()
-  const color = ext === 'pdf' ? 'text-red-500' : ext?.startsWith('doc') ? 'text-blue-600' : 'text-gray-500'
+  const ext   = name.split('.').pop()?.toLowerCase()
+  const color = ext === 'pdf'
+    ? 'text-red-500'
+    : ext?.startsWith('doc') ? 'text-blue-600' : 'text-gray-500'
   return <FileText size={16} className={color} />
 }
 
-/* ── Componente ─────────────────────────────────────────────────────────────── */
+/* ── Multi-select de critérios ──────────────────────────────────────────────── */
+interface CriteriaSelectProps {
+  criteria:   OeaCriteria[]
+  selected:   string[]
+  onChange:   (v: string[]) => void
+  disabled:   boolean
+  loading:    boolean
+}
+
+function CriteriaSelect({ criteria, selected, onChange, disabled, loading }: CriteriaSelectProps) {
+  const [open,   setOpen]   = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Fecha ao clicar fora
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  const filtered = criteria.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    String(c.number).includes(search)
+  )
+
+  function toggle(name: string) {
+    onChange(
+      selected.includes(name)
+        ? selected.filter(s => s !== name)
+        : [...selected, name]
+    )
+  }
+
+  function selectAll() { onChange(criteria.map(c => c.name)) }
+  function clearAll()  { onChange([]) }
+
+  const label = loading
+    ? 'Carregando critérios…'
+    : selected.length === 0
+    ? 'Selecione os critérios…'
+    : selected.length === 1
+    ? criteria.find(c => c.name === selected[0])
+        ? `${criteria.find(c => c.name === selected[0])!.number}. ${selected[0]}`
+        : selected[0]
+    : `${selected.length} critérios selecionados`
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => !disabled && !loading && setOpen(o => !o)}
+        disabled={disabled || loading}
+        className={cn(
+          'w-full flex items-center justify-between rounded-lg border px-3 py-2.5 text-sm bg-white dark:bg-gray-800 text-left transition-colors',
+          'border-gray-300 dark:border-gray-600',
+          'focus:outline-none focus:ring-2 focus:ring-blue-500',
+          open && 'ring-2 ring-blue-500',
+          (disabled || loading) && 'opacity-60 cursor-not-allowed',
+          !disabled && !loading && 'cursor-pointer hover:border-blue-400'
+        )}
+      >
+        <span className={cn('truncate', selected.length === 0 && 'text-gray-400')}>
+          {label}
+        </span>
+        {loading
+          ? <Loader2 size={15} className="animate-spin text-gray-400 flex-shrink-0" />
+          : <ChevronDown size={15} className={cn('text-gray-400 flex-shrink-0 transition-transform', open && 'rotate-180')} />
+        }
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg overflow-hidden">
+          {/* Busca */}
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar critério…"
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-700 dark:text-gray-300"
+              />
+            </div>
+          </div>
+
+          {/* Ações rápidas */}
+          <div className="flex gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={selectAll}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Selecionar todos
+            </button>
+            <span className="text-gray-300 dark:text-gray-600">·</span>
+            <button
+              type="button"
+              onClick={clearAll}
+              className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+            >
+              Limpar
+            </button>
+          </div>
+
+          {/* Lista */}
+          <ul className="max-h-60 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <li className="px-3 py-4 text-xs text-center text-gray-400">Nenhum critério encontrado</li>
+            ) : (
+              filtered.map(c => {
+                const isSelected = selected.includes(c.name)
+                return (
+                  <li key={c.number}>
+                    <button
+                      type="button"
+                      onClick={() => toggle(c.name)}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
+                        isSelected
+                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                      )}
+                    >
+                      <span className={cn(
+                        'flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center',
+                        isSelected
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : 'border-gray-300 dark:border-gray-600'
+                      )}>
+                        {isSelected && <Check size={10} />}
+                      </span>
+                      <span className="flex-shrink-0 text-xs font-semibold text-gray-400 dark:text-gray-500 w-5 text-right">
+                        {c.number}.
+                      </span>
+                      <span className="flex-1">{c.name}</span>
+                    </button>
+                  </li>
+                )
+              })
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Componente principal ───────────────────────────────────────────────────── */
 export function ChecklistGenerate() {
-  const [criterio, setCriterio]   = useState('')
-  const [cliente,  setCliente]    = useState('')
-  const [files,    setFiles]      = useState<UploadedFile[]>([])
-  const [stage,    setStage]      = useState<Stage>('idle')
-  const [error,    setError]      = useState('')
-  const [result,   setResult]     = useState<{ filename: string; blob: Blob; count: number } | null>(null)
-  const [dragging, setDragging]   = useState(false)
+  const [criteria,  setCriteria]  = useState<OeaCriteria[]>([])
+  const [criterios, setCriterios] = useState<string[]>([])
+  const [cliente,   setCliente]   = useState('')
+  const [files,     setFiles]     = useState<UploadedFile[]>([])
+  const [stage,     setStage]     = useState<Stage>('idle')
+  const [error,     setError]     = useState('')
+  const [result,    setResult]    = useState<{ filename: string; blob: Blob; count: number } | null>(null)
+  const [dragging,  setDragging]  = useState(false)
+  const [loadingCriteria, setLoadingCriteria] = useState(true)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
-  /* ── Adiciona arquivos ── */
-  const addFiles = useCallback((incoming: FileList | File[]) => {
-    const arr = Array.from(incoming)
-    const errors: string[] = []
+  /* ── Busca critérios do banco ── */
+  useEffect(() => {
+    async function fetchCriteria() {
+      try {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch('/api/oea-criteria', {
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {},
+        })
+        if (res.ok) {
+          const json = await res.json()
+          const list: OeaCriteria[] = (json.criteria ?? []).map((c: { number: number; name: string }) => ({
+            number: c.number,
+            name:   c.name,
+          }))
+          setCriteria(list)
+        }
+      } catch {
+        // falha silenciosa — usuário verá a lista vazia
+      } finally {
+        setLoadingCriteria(false)
+      }
+    }
+    fetchCriteria()
+  }, [])
 
-    const next: UploadedFile[] = []
+  /* ── Upload de arquivos ── */
+  const addFiles = useCallback((incoming: FileList | File[]) => {
+    const arr    = Array.from(incoming)
+    const errors: string[] = []
+    const next:   UploadedFile[] = []
     for (const f of arr) {
       if (f.size > MAX_FILE_MB * 1024 * 1024) {
         errors.push(`"${f.name}" ultrapassa ${MAX_FILE_MB} MB`)
@@ -68,7 +246,6 @@ export function ChecklistGenerate() {
       }
       next.push({ file: f, id: `${f.name}-${f.size}-${Date.now()}` })
     }
-
     if (errors.length) setError(errors.join('; '))
     setFiles(prev => {
       const existing = new Set(prev.map(x => x.id))
@@ -78,7 +255,6 @@ export function ChecklistGenerate() {
 
   const removeFile = (id: string) => setFiles(prev => prev.filter(f => f.id !== id))
 
-  /* ── Drag & drop ── */
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false)
     addFiles(e.dataTransfer.files)
@@ -87,9 +263,9 @@ export function ChecklistGenerate() {
   /* ── Geração ── */
   async function handleGenerate() {
     setError('')
-    if (!criterio)     return setError('Selecione o critério OEA.')
-    if (!cliente.trim()) return setError('Informe o nome do cliente.')
-    if (!files.length) return setError('Adicione ao menos um documento.')
+    if (criterios.length === 0) return setError('Selecione ao menos um critério OEA.')
+    if (!cliente.trim())        return setError('Informe o nome do cliente.')
+    if (!files.length)          return setError('Adicione ao menos um documento.')
 
     const totalSize = files.reduce((s, f) => s + f.file.size, 0)
     if (totalSize > MAX_TOTAL_MB * 1024 * 1024) {
@@ -101,7 +277,8 @@ export function ChecklistGenerate() {
 
     try {
       const fd = new FormData()
-      fd.append('criterio', criterio)
+      // Envia cada critério como campo separado com a mesma chave
+      criterios.forEach(c => fd.append('criterios', c))
       fd.append('cliente', cliente.trim())
       files.forEach(f => fd.append('files', f.file))
 
@@ -114,7 +291,6 @@ export function ChecklistGenerate() {
 
       const blob        = await res.blob()
       const rawFilename = res.headers.get('X-Filename') ?? 'checklist.xlsx'
-      // X-Filename é enviado percent-encoded (encodeURIComponent) para preservar acentos
       const filename    = decodeURIComponent(rawFilename)
       const count       = Number(res.headers.get('X-Items-Count') ?? 0)
 
@@ -141,11 +317,16 @@ export function ChecklistGenerate() {
     setResult(null)
     setError('')
     setFiles([])
-    setCriterio('')
+    setCriterios([])
     setCliente('')
   }
 
-  const canGenerate = criterio && cliente.trim() && files.length > 0 && stage !== 'loading'
+  const canGenerate = criterios.length > 0 && cliente.trim() && files.length > 0 && stage !== 'loading'
+
+  /* ── Label dos critérios selecionados para o resultado ── */
+  const criteriosLabel = criterios.length === 1
+    ? criterios[0]
+    : `${criterios.length} critérios`
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
   return (
@@ -168,30 +349,48 @@ export function ChecklistGenerate() {
       {stage !== 'done' && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-5 shadow-sm">
 
-          {/* Critério */}
+          {/* Critérios OEA */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Critério OEA <span className="text-red-500">*</span>
+              Critério(s) OEA <span className="text-red-500">*</span>
+              {criterios.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400">
+                  {criterios.length} selecionado{criterios.length > 1 ? 's' : ''}
+                </span>
+              )}
             </label>
-            <div className="relative">
-              <select
-                value={criterio}
-                onChange={e => setCriterio(e.target.value)}
-                disabled={stage === 'loading'}
-                className={cn(
-                  'w-full appearance-none rounded-lg border px-3 py-2.5 pr-9 text-sm bg-white dark:bg-gray-800',
-                  'border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white',
-                  'focus:outline-none focus:ring-2 focus:ring-blue-500',
-                  'disabled:opacity-60'
-                )}
-              >
-                <option value="">Selecione o critério...</option>
-                {OEA_CRITERIOS.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            </div>
+            <CriteriaSelect
+              criteria={criteria}
+              selected={criterios}
+              onChange={setCriterios}
+              disabled={stage === 'loading'}
+              loading={loadingCriteria}
+            />
+            {/* Chips dos selecionados */}
+            {criterios.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {criterios.map(c => {
+                  const num = criteria.find(cr => cr.name === c)?.number
+                  return (
+                    <span
+                      key={c}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                    >
+                      {num != null ? `${num}. ` : ''}{c}
+                      {stage !== 'loading' && (
+                        <button
+                          type="button"
+                          onClick={() => setCriterios(prev => prev.filter(s => s !== c))}
+                          className="hover:text-red-500 transition-colors"
+                        >
+                          <X size={10} />
+                        </button>
+                      )}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Nome do cliente */}
@@ -221,7 +420,6 @@ export function ChecklistGenerate() {
               <span className="ml-2 font-normal text-gray-400">PDF, DOCX, TXT · até {MAX_FILE_MB} MB por arquivo</span>
             </label>
 
-            {/* Área de drop */}
             <div
               onClick={() => inputRef.current?.click()}
               onDragOver={e => { e.preventDefault(); setDragging(true) }}
@@ -251,7 +449,6 @@ export function ChecklistGenerate() {
               <p className="text-xs text-gray-400 mt-1">Múltiplos arquivos suportados</p>
             </div>
 
-            {/* Lista de arquivos */}
             {files.length > 0 && (
               <ul className="mt-3 space-y-2">
                 {files.map(f => (
@@ -281,7 +478,7 @@ export function ChecklistGenerate() {
             </div>
           )}
 
-          {/* Botão gerar */}
+          {/* Botão */}
           <button
             onClick={handleGenerate}
             disabled={!canGenerate}
@@ -317,8 +514,6 @@ export function ChecklistGenerate() {
       {/* Resultado */}
       {stage === 'done' && result && (
         <div className="bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl p-6 space-y-5 shadow-sm">
-
-          {/* Status */}
           <div className="flex items-center gap-3">
             <CheckCircle2 size={24} className="text-green-500 flex-shrink-0" />
             <div>
@@ -327,12 +522,11 @@ export function ChecklistGenerate() {
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 <span className="font-medium text-green-600 dark:text-green-400">{result.count} itens auditáveis</span>
-                {' '}extraídos dos documentos do cliente para o critério <span className="font-medium">{criterio}</span>
+                {' '}extraídos para: <span className="font-medium">{criteriosLabel}</span>
               </p>
             </div>
           </div>
 
-          {/* Arquivo */}
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-3">
             <div className="flex items-center gap-2 text-sm">
               <FileText size={16} className="text-green-600 flex-shrink-0" />
@@ -340,7 +534,6 @@ export function ChecklistGenerate() {
             </div>
           </div>
 
-          {/* Ações */}
           <div className="flex gap-3">
             <button
               onClick={handleDownload}
@@ -357,7 +550,6 @@ export function ChecklistGenerate() {
             </button>
           </div>
 
-          {/* Aviso Etapa 2 */}
           <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
             <strong>Próximo passo (Etapa 2):</strong> Após coletar as evidências do cliente, utilize a planilha gerada
             para registrar o atendimento nas colunas Q em diante e gerar o relatório de auditoria.

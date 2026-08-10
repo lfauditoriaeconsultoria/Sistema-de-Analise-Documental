@@ -166,11 +166,15 @@ async function fillTemplate(
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
-    const criterio = (formData.get('criterio') as string | null)?.trim()
-    const cliente  = (formData.get('cliente')  as string | null)?.trim()
+    // Aceita tanto `criterios` (múltiplos, novo frontend) quanto `criterio` (singular, retrocompat.)
+    const criteriosRaw = formData.getAll('criterios') as string[]
+    const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
+    const criterios    = criteriosRaw.length > 0 ? criteriosRaw.map(s => s.trim()).filter(Boolean)
+                       : criterioLeg ? [criterioLeg] : []
+    const cliente  = (formData.get('cliente') as string | null)?.trim()
     const files    = formData.getAll('files') as File[]
 
-    if (!criterio) return Response.json({ error: 'Selecione o critério OEA.' }, { status: 400 })
+    if (!criterios.length) return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
     if (!cliente)  return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
     if (!files.length) return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
 
@@ -221,48 +225,51 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
     }
 
-    // ── Busca critério OEA no banco (substitui Anexo II PDF — muito mais barato) ──
-    let criteriaContext: string | null = null
+    // ── Busca critérios OEA no banco ─────────────────────────────────────────
+    let criteriaContexts: string[] = []
     try {
       const admin = createAdminClient()
-      const { data: criteriaRow, error } = await admin
+      const { data: criteriaRows, error } = await admin
         .from('oea_criteria')
         .select('number, name, description, items:oea_items(item_number, description, qualificador)')
-        .ilike('name', criterio)
-        .single()
+        .in('name', criterios)
+        .order('number', { ascending: true })
 
       if (error) {
-        console.warn('[checklist/generate] critério não encontrado no banco:', criterio, error.message)
-      } else if (criteriaRow) {
-        criteriaContext = buildCriteriaContext(criteriaRow as OeaCriteriaRow)
-        console.log('[checklist/generate] critério carregado do banco:', criteriaRow.name, '| itens:', (criteriaRow as OeaCriteriaRow).items?.length ?? 0)
+        console.warn('[checklist/generate] erro ao buscar critérios no banco:', error.message)
+      } else if (criteriaRows?.length) {
+        criteriaContexts = criteriaRows.map(row => buildCriteriaContext(row as OeaCriteriaRow))
+        console.log('[checklist/generate] critérios carregados:', criteriaRows.map(r => `${r.number}. ${r.name}`).join(', '))
       }
     } catch (dbErr) {
       console.warn('[checklist/generate] falha ao consultar banco — prosseguindo sem contexto:', dbErr)
     }
 
+    const criteriosLabel = criterios.join(', ')
+
     // ── Prompt mestre ─────────────────────────────────────────────────────────
     const promptMestre = loadPromptMestre()
 
-    const normativaSection = criteriaContext
+    const normativaSection = criteriaContexts.length > 0
       ? `━━━ REFERÊNCIA NORMATIVA ━━━
 
-Os requisitos oficiais do critério "${criterio}" foram extraídos do banco de dados do sistema.
-Use esta lista como fonte DEFINITIVA para as colunas E (requisito) e F (qualificador).
+Os requisitos oficiais dos critérios selecionados foram extraídos do banco de dados do sistema.
+Use estas listas como fonte DEFINITIVA para as colunas E (requisito) e F (qualificador).
 
-Cada linha abaixo tem o formato:
+Cada linha tem o formato:
   • NÚMERO [QUALIFICADOR] — descrição do requisito
 
 Regras:
+- "criterio" (coluna D): use exatamente o nome do critério ao qual o item pertence.
 - "requisito" (coluna E): use exatamente o NÚMERO do item (ex: 5.1, 5.3).
 - "qualificador" (coluna F): copie exatamente o valor entre colchetes — "Obrigatório" ou "Recomendável".
-- NUNCA repita o mesmo número de requisito para todos os itens — cada processo auditado mapeia para seu requisito específico.
+- NUNCA repita o mesmo número de requisito para todos os itens.
 
-${criteriaContext}`
+${criteriaContexts.join('\n\n━━━\n\n')}`
       : `━━━ REFERÊNCIA NORMATIVA ━━━
 
-Use seu conhecimento do Programa OEA (Portaria Coana nº 154/2024) para identificar o requisito
-correto de cada processo auditado. Os números VARIAM por item — nunca repita o mesmo requisito.
+Use seu conhecimento do Programa OEA (Portaria Coana nº 154/2024) para identificar os requisitos
+corretos de cada processo auditado. Os números VARIAM por item — nunca repita o mesmo requisito.
 O qualificador ("Obrigatório" ou "Recomendável") segue a classificação oficial do programa.`
 
     const systemPrompt = `${promptMestre}
@@ -278,7 +285,7 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
   "items": [
     {
       "id": 1,
-      "criterio": "nome oficial do critério OEA",
+      "criterio": "nome oficial do critério OEA ao qual este item pertence",
       "requisito": "número do requisito para este item (ex: 5.1, 5.3, 6.2) — VARIA por item",
       "qualificador": "Obrigatório ou Recomendável — conforme classificação no Programa OEA",
       "doc_codigo": "código do documento",
@@ -298,16 +305,17 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
 REGRAS CRÍTICAS:
 - "processo_auditado" DEVE ser transcrição verbatim (palavra por palavra) do documento — NUNCA parafrasear
 - "requisito" DEVE variar entre os itens — mapeie cada processo ao seu requisito correto
-- Gere quantas linhas forem necessárias — não há limite de 22 itens
-- Extraia TODOS os trechos auditáveis relevantes para o critério ${criterio}
+- "criterio" DEVE indicar corretamente a qual critério o item pertence
+- Gere quantas linhas forem necessárias — não há limite
+- Extraia TODOS os trechos auditáveis relevantes para os critérios: ${criteriosLabel}
 - Não toque nas colunas Q em diante (etapa de conformidade)`
 
-    const userMessage = `Critério OEA selecionado: ${criterio}
+    const userMessage = `Critério(s) OEA selecionado(s): ${criteriosLabel}
 Cliente: ${cliente}
 
 Analise os documentos abaixo e preencha o checklist de auditoria conforme as instruções.
-Para cada item, identifique o requisito correto (coluna E) e o qualificador (coluna F).
-Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
+Para cada item, identifique o critério correto (coluna D), o requisito (coluna E) e o qualificador (coluna F).
+Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
 
     // ── Monta conteúdo da mensagem ────────────────────────────────────────────
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -408,7 +416,7 @@ Extraia TODOS os itens auditáveis relevantes para o critério "${criterio}".`
             id:          checklistId,
             user_id:     user.id,
             cliente,
-            criterio,
+            criterio:    criteriosLabel,
             filename:    filenameXlsx,
             items_count: items.length,
             file_path:   filePath,
