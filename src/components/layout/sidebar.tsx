@@ -22,13 +22,13 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Painel', icon: <LayoutDashboard size={18} /> },
-  { href: '/analysis/new', label: 'Nova Análise', icon: <FilePlus size={18} /> },
-  { href: '/ai-chat', label: 'Consultor IA', icon: <Bot size={18} /> },
-  { href: '/audit',            label: 'Auditoria OEA',      icon: <ClipboardList size={18} /> },
-  { href: '/analysis/history', label: 'Histórico',          icon: <Clock         size={18} /> },
-  { href: '/reference-docs', label: 'Base de Conhecimento', icon: <BookOpen size={18} /> },
-  { href: '/admin', label: 'Administração', icon: <Settings size={18} />, adminOnly: true },
+  { href: '/dashboard',        label: 'Painel',               icon: <LayoutDashboard size={18} /> },
+  { href: '/analysis/new',     label: 'Nova Análise',         icon: <FilePlus        size={18} /> },
+  { href: '/ai-chat',          label: 'Consultor IA',         icon: <Bot             size={18} /> },
+  { href: '/audit',            label: 'Auditoria OEA',        icon: <ClipboardList   size={18} /> },
+  { href: '/analysis/history', label: 'Histórico',            icon: <Clock           size={18} /> },
+  { href: '/reference-docs',   label: 'Base de Conhecimento', icon: <BookOpen        size={18} /> },
+  { href: '/admin',            label: 'Administração',        icon: <Settings        size={18} />, adminOnly: true },
 ]
 
 interface SidebarProps {

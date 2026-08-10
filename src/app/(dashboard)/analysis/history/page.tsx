@@ -105,6 +105,35 @@ export default async function HistoryPage() {
     checklists = ((data ?? []) as any[]).map((c: any) => ({ ...c, user_full_name: null }))
   }
 
+  // ── Avaliações de evidências (Etapa 2) ──
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let evaluations: any[]
+  if (isAdmin) {
+    const { data } = await admin
+      .from('evaluate_history')
+      .select('id, criterio, cliente, filename, items_count, nc_count, created_at, user_id, profiles!user_id(full_name)')
+      .order('created_at', { ascending: false })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    evaluations = ((data ?? []) as any[]).map((e: any) => ({
+      id:             e.id as string,
+      criterio:       e.criterio as string,
+      cliente:        e.cliente as string,
+      filename:       e.filename as string,
+      items_count:    e.items_count as number,
+      nc_count:       e.nc_count as number,
+      created_at:     e.created_at as string,
+      user_id:        e.user_id as string,
+      user_full_name: (Array.isArray(e.profiles) ? e.profiles[0]?.full_name : e.profiles?.full_name) ?? null,
+    }))
+  } else {
+    const { data } = await supabase
+      .from('evaluate_history')
+      .select('id, criterio, cliente, filename, items_count, nc_count, created_at, user_id')
+      .order('created_at', { ascending: false })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    evaluations = ((data ?? []) as any[]).map((e: any) => ({ ...e, user_full_name: null }))
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (
     <UnifiedHistoryClient
@@ -113,6 +142,7 @@ export default async function HistoryPage() {
       isAdmin={isAdmin}
       auditReports={auditReports}
       checklists={checklists}
+      evaluations={evaluations}
     />
   )
 }

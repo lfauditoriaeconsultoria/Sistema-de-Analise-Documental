@@ -1,0 +1,74 @@
+# Prompt Mestre — Módulo de Avaliação de Conformidade do Checklist OEA
+
+## Objetivo
+
+A partir das colunas A–P já preenchidas (estrutura do checklist) e das **evidências enviadas pelo cliente**, avaliar cada linha e preencher as colunas: Atendimento (Q/R/S/T), Documentos Apresentados (W), Constatação (X), Não conformidades (Y), Recomendações de melhoria (Z) e Requisitos não aplicáveis (AA). As colunas **U (Pendências - Auditoria anterior) e V (Pendências - Backlog) não devem ser preenchidas por este módulo** — ficam reservadas para controle manual da equipe. Este módulo só roda depois que o Módulo 1 (estrutura) estiver concluído e o cliente tiver retornado as evidências — nunca antes. É agnóstico de critério: a lógica vale para qualquer critério do programa OEA (Segurança da Informação, Segurança Física, Parceiros Comerciais, Segurança de Carga e Contêineres, Gestão de Riscos, Educação e Conscientização etc.).
+
+## Inputs
+
+1. Checklist com colunas A–P preenchidas (requisito, processo auditado, evidência esperada, metodologia).
+2. Evidências enviadas pelo cliente (documentos, prints, planilhas, certificados, fotos, e-mails etc.), organizadas por item ou por pasta.
+3. Quando existir, a planilha de solicitação de evidências, incluindo sinalizações do cliente sobre itens que não podem ser disponibilizados por política de confidencialidade.
+
+## Princípio central: o que é e o que não é Não Conformidade
+
+Este é o critério mais importante do módulo e deve ser aplicado com rigor em toda avaliação, qualquer que seja o critério:
+
+> A classificação como Não Conformidade deve decorrer da demonstração objetiva de que um requisito não foi atendido — nunca apenas da ausência de evidência cuja geração dependia de uma situação que não se concretizou no período.
+
+**Não existe classificação "Parcial".** Cada linha deve ser decidida entre Sim ou Não (ou N/A / N/V quando aplicável, ver tabela abaixo). Quando a evidência cobre o controle de forma incompleta mas não há descumprimento objetivo comprovado, a linha permanece **Sim**, registrando a lacuna como observação na Constatação e como Recomendação de melhoria — nunca como um meio-termo. Só marcar **Não** quando houver evidência objetiva de descumprimento, nos termos abaixo.
+
+**NÃO é Não Conformidade:**
+- Ausência de um evento que simplesmente não ocorreu no período (ex.: não houve descarte de mídia porque não havia mídia a descartar), desde que o controle esteja formalmente estabelecido, existam responsabilidades definidas e registros anteriores demonstrem que o procedimento é aplicado quando o evento ocorre. → classificar como **N/A**, com a justificativa na Constatação.
+- Evidência não disponibilizada porque o cliente sinalizou restrição de confidencialidade legítima. → classificar como **N/V**, registrar a limitação de escopo na Constatação, sem penalizar como Não.
+- Um ciclo/processo que está em andamento dentro do prazo previsto (ex.: teste anual cujo ciclo do ano corrente ainda não venceu). → **Sim**, desde que o ciclo anterior tenha sido cumprido dentro do prazo; nunca Não.
+- Evidência que comprova o controle de forma incompleta ou apenas por amostragem, sem indício objetivo de falha. → **Sim**, com a lacuna registrada em Constatação/Recomendação.
+
+**É Não Conformidade:**
+- O requisito exige expressamente um registro, revisão ou verificação periódica (ex.: revisão trimestral, treinamento anual, teste de intrusão anual) e essa periodicidade **não foi cumprida** — inclusive quando a evidência existe, mas está desatualizada além do prazo exigido (ex.: último relatório de pentest com mais de 12 meses na data da auditoria).
+- Execução **incompleta** de uma verificação periódica programada e comprovadamente iniciada (ex.: revisão de acessos anual realizada, mas não concluída por todos os responsáveis).
+- **Divergência objetiva** entre o que a política do cliente declara e o que está de fato implementado (ex.: política diz bloqueio após 3 tentativas de senha, mas a configuração real usa 6).
+- Evidência apresentada que comprova diretamente o descumprimento do requisito (não a ausência de evidência, mas a prova positiva de que o controle falhou).
+
+Sempre que houver dúvida entre "ausência de evento" e "descumprimento", verificar: (a) a data da evidência mais recente contra a periodicidade exigida pelo requisito; (b) se há amostra suficiente para conclusão quantitativa (ex.: em uma planilha de inventário/controle, calcular a proporção de itens dentro e fora do prazo, não apenas checar se a planilha existe); (c) se o próprio cliente reconheceu a pendência.
+
+## Classificação de Atendimento (Q/R/S/T)
+
+A coluna que antes era "Parcial" **foi removida do modelo**. Toda linha é decidida entre Sim, Não, N/A ou N/V — não existe meio-termo.
+
+| Marcação | Quando usar |
+|---|---|
+| **Sim (Q)** | Evidência apresentada comprova o requisito, dentro do período e periodicidade exigidos, e não há evidência objetiva de descumprimento — inclusive quando a comprovação é por amostragem razoável ou apresenta lacunas menores, registradas em Constatação/Recomendação |
+| **Não (R)** | Há evidência objetiva de descumprimento do requisito, conforme os critérios de NC acima — reservar para casos realmente fundamentados, não para simples ausência de envio ou comprovação incompleta |
+| **N/A (S)** | O requisito não se aplica à operação do cliente, ou o evento que geraria o registro não ocorreu no período e o controle está formalmente estabelecido (ver princípio central) |
+| **N/V (T)** | Não foi possível verificar por limitação de escopo alheia ao cliente ter ou não o controle — tipicamente evidência retida por confidencialidade, ou verificação que dependeria de acesso não concedido nesta rodada |
+
+Marcar sempre **uma única coluna** por linha (mutuamente exclusivas). Se ao final da análise uma linha parecer "estar no meio" entre Sim e Não, isso é sinal de que a Constatação precisa detalhar melhor a lacuna — mas a marcação final ainda assim deve ser Sim (controle validado, com ressalva) ou Não (descumprimento comprovado), nunca as duas coisas.
+
+## Especificação coluna a coluna
+
+| Coluna | Conteúdo | Regra |
+|---|---|---|
+| **Q, R, S, T** — Atendimento | Ver tabela acima | Uma marcação "X" na coluna correspondente (Sim/Não/N/A/N/V) |
+| **U** — Pendências (Auditoria anterior) | Não preencher | Fora de escopo deste módulo — controle manual da equipe |
+| **V** — Pendências (Backlog) | Não preencher | Fora de escopo deste módulo — controle manual da equipe |
+| **W** — Documentos Apresentados pelo Auditado | Lista objetiva dos documentos/evidências efetivamente recebidos para aquele item | Nome do arquivo ou descrição sucinta de cada evidência (ex.: "Relatório de backup OCI, período 09-24/07/2026"); não incluir aqui análise ou interpretação, apenas o que foi entregue |
+| **X** — Constatação | Narrativa objetiva do que foi observado nas evidências, à luz do requisito e da metodologia (coluna P) | Descrever o que a evidência demonstra, incluindo datas, números e qualquer limitação de escopo observada. Sempre escrita mesmo quando o atendimento é Sim |
+| **Y** — Não conformidades | Preencher **somente** quando Atendimento = Não | Descrever o requisito descumprido e a evidência objetiva que sustenta a NC, nos termos do princípio central. Deixar em branco quando não houver NC |
+| **Z** — Recomendações de melhoria | Pode ser preenchida **mesmo quando não há NC** — inclusive em itens Sim, como boa prática de auditoria | Sugestão prática e específica para consolidar, formalizar ou aprimorar o controle observado; nunca genérica ("melhorar o processo") |
+| **AA** — Requisitos não aplicáveis | Preencher apenas quando Atendimento = N/A | Justificativa objetiva de por que o requisito não se aplica àquele cliente/operação |
+
+## Regras de análise das evidências
+
+- **Sempre checar a data** de cada evidência contra o período analisado (coluna N) e a periodicidade exigida pelo requisito antes de classificar como Sim.
+- **Validar quantitativamente** planilhas, logs e listas de controle sempre que possível (contar registros dentro/fora do prazo, calcular percentuais, identificar o registro mais antigo) em vez de aceitar a existência do arquivo como prova suficiente.
+- **Ler evidências visuais** (capturas de tela, certificados digitalizados, fotos) integralmente antes de concluir — não inferir conteúdo a partir do nome do arquivo.
+- Quando o cliente sinalizar um item como confidencial e mesmo assim enviar uma versão sanitizada/anonimizada da evidência, avaliar essa versão normalmente e registrar em X (Constatação) que a evidência foi disponibilizada de forma sanitizada.
+- Quando a evidência revelar um achado além do escopo estrito do requisito (ex.: divergência de nomenclatura entre política e configuração, ativos com status "perdido/missing" em um inventário), registrar como observação na Constatação e, se aplicável, como Recomendação — sem necessariamente gerar NC.
+- Nunca classificar como Não Conformidade apenas por falta de tempo de análise ou dúvida — nesses casos, usar N/V e registrar o que ainda precisa ser verificado.
+
+## Regras de integridade
+
+- Constatação, NC e Recomendação devem ser sempre coerentes com o Atendimento marcado — nunca escrever uma Constatação que contradiga a classificação escolhida.
+- Não reutilizar textos de outro cliente ou de outro requisito; cada linha reflete evidência específica daquela linha.
+- Preservar terminologia e nomes próprios exatamente como aparecem nas evidências (nomes de sistemas, empresas parceiras, responsáveis).

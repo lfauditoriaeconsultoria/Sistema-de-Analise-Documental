@@ -31,8 +31,9 @@ const options: AuditOption[] = [
     title: 'Preencher Checklist',
     description:
       'Preencha a planilha de auditoria com base nas evidências e nos documentos encaminhados pelo cliente.',
-    enabled: false,
-    badge: 'Em breve',
+    href: '/checklist/evaluate',
+    enabled: checklistEnabled,
+    badge: checklistEnabled ? undefined : 'Em breve',
   },
   {
     icon: <FileText size={32} />,

@@ -7,6 +7,7 @@ import {
   FilePlus, Search, ArrowRight, Shield, Lock, User,
   FileText, ClipboardList, Building2, CalendarDays,
   Trash2, Loader2, ChevronRight, AlertTriangle, Download, FileSpreadsheet,
+  ClipboardCheck, XCircle,
 } from 'lucide-react'
 import { Analysis, Theme } from '@/types'
 import { Card } from '@/components/ui/card'
@@ -46,12 +47,25 @@ interface ChecklistRow {
   user_full_name?: string | null
 }
 
+interface EvaluationRow {
+  id: string
+  criterio: string
+  cliente: string
+  filename: string
+  items_count: number
+  nc_count: number
+  created_at: string
+  user_id?: string
+  user_full_name?: string | null
+}
+
 interface Props {
   analyses: AnalysisRow[]
   themes: Array<{ id: string; name: string }>
   isAdmin: boolean
   auditReports: AuditRow[]
   checklists: ChecklistRow[]
+  evaluations: EvaluationRow[]
 }
 
 /* ── Helpers ── */
@@ -594,15 +608,220 @@ function ChecklistTab({ initialChecklists, isAdmin }: { initialChecklists: Check
   )
 }
 
+/* ── Tab: Avaliações de Evidências ── */
+
+function EvaluateTab({ initialEvaluations, isAdmin }: { initialEvaluations: EvaluationRow[]; isAdmin: boolean }) {
+  const [evaluations, setEvaluations] = useState<EvaluationRow[]>(initialEvaluations)
+  const [query, setQuery]             = useState('')
+  const [filterUser, setFilterUser]   = useState('')
+  const [deletingId, setDeletingId]   = useState<string | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [error, setError]             = useState<string | null>(null)
+
+  const collaborators = useMemo(() => {
+    if (!isAdmin) return []
+    const map = new Map<string, string>()
+    evaluations.forEach(e => { if (e.user_id && e.user_full_name) map.set(e.user_id, e.user_full_name) })
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [evaluations, isAdmin])
+
+  const filtered = useMemo(() => {
+    return evaluations.filter(e => {
+      const q = query.toLowerCase()
+      const matchQuery = !query.trim() ||
+        (e.cliente ?? '').toLowerCase().includes(q) ||
+        (e.criterio ?? '').toLowerCase().includes(q)
+      const matchUser = !filterUser || e.user_id === filterUser
+      return matchQuery && matchUser
+    })
+  }, [evaluations, query, filterUser])
+
+  async function handleDownload(id: string) {
+    setDownloadingId(id)
+    setError(null)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/checklist/evaluate-download/${id}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (!res.ok) { setError('Não foi possível baixar o arquivo.'); return }
+      const { url, filename } = await res.json()
+      const a = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+    } catch {
+      setError('Erro ao gerar link de download.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  async function handleDelete(id: string, label: string) {
+    if (!confirm(`Excluir a avaliação de "${label}"? Essa ação não pode ser desfeita.`)) return
+    setDeletingId(id)
+    setError(null)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/checklist/evaluate-download/${id}`, {
+        method: 'DELETE',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok || res.status === 204) {
+        setEvaluations(prev => prev.filter(e => e.id !== id))
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.error ?? 'Não foi possível excluir.')
+      }
+    } catch {
+      setError('Erro de conexão ao tentar excluir.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[#64748B] dark:text-[#94a3b8]">
+          {filtered.length} avaliação(ões)
+          {isAdmin && filterUser && collaborators.find(c => c.id === filterUser)
+            ? ` de ${collaborators.find(c => c.id === filterUser)?.name}`
+            : isAdmin ? ' de todos os colaboradores' : ''}
+        </p>
+        <Link href="/checklist/evaluate">
+          <Button size="sm" className="gap-1.5"><FilePlus size={14} /> Nova Avaliação</Button>
+        </Link>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <div className="relative flex-1 min-w-48">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Buscar por cliente ou critério…"
+            className={cn(inputCls, 'w-full pl-9 pr-3')}
+          />
+        </div>
+        {isAdmin && collaborators.length > 0 && (
+          <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className={inputCls}>
+            <option value="">Todos os colaboradores</option>
+            {collaborators.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+        {(query || filterUser) && (
+          <Button variant="ghost" size="sm" onClick={() => { setQuery(''); setFilterUser('') }}>
+            Limpar filtros
+          </Button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30 rounded-lg p-3">
+          <AlertTriangle size={15} className="flex-shrink-0" /> {error}
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <Card className="text-center py-16">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-[#F0FDF4] dark:bg-green-900/20 flex items-center justify-center mx-auto">
+              <ClipboardCheck size={24} className="text-green-600 dark:text-green-400" />
+            </div>
+            <p className="font-semibold text-[#1a2a5e] dark:text-[#e2e8f0]">
+              {evaluations.length === 0 ? 'Nenhuma avaliação realizada' : 'Nenhum resultado encontrado'}
+            </p>
+            <p className="text-sm text-[#64748B] dark:text-[#94a3b8]">
+              {evaluations.length === 0 ? 'Realize sua primeira avaliação de evidências (Etapa 2)' : 'Tente outra busca'}
+            </p>
+            {evaluations.length === 0 && (
+              <Link href="/checklist/evaluate">
+                <Button size="sm" className="mt-2 gap-1.5"><FilePlus size={14} /> Avaliar Evidências</Button>
+              </Link>
+            )}
+          </div>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3">
+          {filtered.map(e => (
+            <Card key={e.id} padding="sm" className="group hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-[#F0FDF4] dark:bg-green-900/20 flex items-center justify-center flex-shrink-0">
+                  <ClipboardCheck size={20} className="text-green-600 dark:text-green-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm text-[#1a2a5e] dark:text-[#e2e8f0] truncate">
+                    {e.cliente || e.criterio || 'Avaliação'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                    {e.criterio && (
+                      <span className="flex items-center gap-1 text-xs text-[#64748B] dark:text-[#94a3b8]">
+                        <Building2 size={11} /> {e.criterio}
+                      </span>
+                    )}
+                    <span className="text-xs text-[#94A3B8] dark:text-[#94a3b8]">
+                      {e.items_count} {e.items_count === 1 ? 'item' : 'itens'}
+                    </span>
+                    {e.nc_count > 0 && (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400">
+                        <XCircle size={11} /> {e.nc_count} NC
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1 text-xs text-[#94A3B8] dark:text-[#94a3b8]">
+                      <CalendarDays size={11} /> {fmtDate(e.created_at)}
+                    </span>
+                    {isAdmin && e.user_full_name && (
+                      <span className="flex items-center gap-1 text-xs text-[#64748B] dark:text-[#94a3b8]">
+                        <User size={11} /> {e.user_full_name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleDelete(e.id, e.cliente || e.criterio || 'avaliação')}
+                    disabled={deletingId === e.id}
+                    title="Excluir avaliação"
+                  >
+                    {deletingId === e.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/10"
+                    onClick={() => handleDownload(e.id)}
+                    disabled={downloadingId === e.id}
+                    title="Baixar planilha preenchida"
+                  >
+                    {downloadingId === e.id
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <><Download size={14} /> Baixar</>}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── Componente principal ── */
 
-export function UnifiedHistoryClient({ analyses, themes, isAdmin, auditReports, checklists }: Props) {
-  const [activeTab, setActiveTab] = useState<'analyses' | 'audit' | 'checklists'>('analyses')
+export function UnifiedHistoryClient({ analyses, themes, isAdmin, auditReports, checklists, evaluations }: Props) {
+  const [activeTab, setActiveTab] = useState<'analyses' | 'audit' | 'checklists' | 'evaluations'>('analyses')
 
   const tabs = [
-    { id: 'analyses'   as const, label: 'Análises de Documentos',     count: analyses.length,     icon: <FileText size={15} /> },
-    { id: 'audit'      as const, label: 'Relatórios de Auditoria OEA', count: auditReports.length, icon: <ClipboardList size={15} /> },
-    { id: 'checklists' as const, label: 'Checklists',                  count: checklists.length,   icon: <FileSpreadsheet size={15} /> },
+    { id: 'analyses'    as const, label: 'Análises de Documentos', count: analyses.length,     icon: <FileText        size={15} /> },
+    { id: 'checklists'  as const, label: 'Checklists',             count: checklists.length,   icon: <FileSpreadsheet size={15} /> },
+    { id: 'evaluations' as const, label: 'Análise de Evidências',  count: evaluations.length,  icon: <ClipboardCheck  size={15} /> },
+    { id: 'audit'       as const, label: 'Relatórios Executivos',  count: auditReports.length, icon: <ClipboardList   size={15} /> },
   ]
 
   return (
@@ -611,7 +830,7 @@ export function UnifiedHistoryClient({ analyses, themes, isAdmin, auditReports, 
       <div>
         <h1 className="text-xl font-bold text-[#1a2a5e] dark:text-[#e2e8f0]">Histórico</h1>
         <p className="text-sm text-[#64748B] dark:text-[#94a3b8] mt-0.5">
-          Análises de documentos, relatórios de auditoria e checklists gerados
+          Análises de documentos, checklists, avaliações de evidências e relatórios executivos OEA
         </p>
       </div>
 
@@ -643,9 +862,10 @@ export function UnifiedHistoryClient({ analyses, themes, isAdmin, auditReports, 
       </div>
 
       {/* Conteúdo */}
-      {activeTab === 'analyses'   && <AnalysesTab analyses={analyses} themes={themes} isAdmin={isAdmin} />}
-      {activeTab === 'audit'      && <AuditTab initialReports={auditReports} isAdmin={isAdmin} />}
-      {activeTab === 'checklists' && <ChecklistTab initialChecklists={checklists} isAdmin={isAdmin} />}
+      {activeTab === 'analyses'    && <AnalysesTab analyses={analyses} themes={themes} isAdmin={isAdmin} />}
+      {activeTab === 'audit'       && <AuditTab initialReports={auditReports} isAdmin={isAdmin} />}
+      {activeTab === 'checklists'  && <ChecklistTab initialChecklists={checklists} isAdmin={isAdmin} />}
+      {activeTab === 'evaluations' && <EvaluateTab initialEvaluations={evaluations} isAdmin={isAdmin} />}
     </div>
   )
 }

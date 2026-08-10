@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   // No Next.js 16 essa opção saiu de `experimental` para o nível raiz.
   outputFileTracingIncludes: {
     '/api/checklist/generate': ['./data/**/*'],
+    '/api/checklist/evaluate': ['./data/**/*'],
     '/api/audit/generate':     ['./data/**/*'],
   },
 };
