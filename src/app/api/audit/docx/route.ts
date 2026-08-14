@@ -149,8 +149,8 @@ function buildCoverBand(): Table {
 
 function bodyParagraph(text: string | null | undefined): Paragraph {
   return new Paragraph({
-    children: markdownToRuns(text ?? ''),
-    spacing: { after: 160 },
+    children: markdownToRuns(text ?? '', 22, '000000'),
+    spacing: { before: 0, after: 0, line: 360, lineRule: 'auto' as const },
     alignment: AlignmentType.BOTH,
   })
 }
@@ -537,6 +537,23 @@ export async function POST(req: NextRequest) {
 
     const doc = new Document({
       numbering: { config: [] },
+
+      // ── Estilo padrão do documento ──
+      // Garante que qualquer parágrafo sem estilo explícito herde:
+      // • fonte preta (#000000)
+      // • espaçamento antes = 0 pt, depois = 0 pt
+      // • entrelinhamento = 1,5 linhas (line 360 = 1,5 × 240 twips)
+      styles: {
+        default: {
+          document: {
+            run: { color: '000000' },
+            paragraph: {
+              spacing: { before: 0, after: 0, line: 360, lineRule: 'auto' as const },
+            },
+          },
+        },
+      },
+
       sections: [
 
         /* ══════════════ CAPA ══════════════ */
