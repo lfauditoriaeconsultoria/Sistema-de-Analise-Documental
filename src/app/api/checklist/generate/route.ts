@@ -328,7 +328,7 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
 
     const message = await client.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 16000,
+      max_tokens: 64000,
       // Cache do prompt mestre (estável entre requisições)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
@@ -339,19 +339,24 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
     })
 
     console.log(
-      '[checklist/generate] cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
+      '[checklist/generate] stop_reason:', message.stop_reason,
+      '| cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
       '| cache_read:', message.usage?.cache_read_input_tokens ?? 0,
       '| input:', message.usage?.input_tokens,
+      '| output:', message.usage?.output_tokens,
     )
+
+    if (message.stop_reason === 'max_tokens') {
+      console.error('[checklist/generate] resposta cortada por max_tokens — JSON truncado, retornando erro claro')
+      return Response.json({
+        error: 'O checklist gerado é muito extenso para ser processado de uma vez. Reduza a quantidade de documentos enviados ou divida em lotes menores e tente novamente.',
+      }, { status: 422 })
+    }
 
     const rawText = message.content
       .filter(b => b.type === 'text')
       .map(b => (b as { type: 'text'; text: string }).text)
       .join('')
-
-    if (message.stop_reason === 'max_tokens') {
-      console.warn('[checklist/generate] resposta cortada por max_tokens')
-    }
 
     // ── Parse do JSON retornado pela IA ───────────────────────────────────────
     let parsed: { items: ChecklistItem[] } | undefined
