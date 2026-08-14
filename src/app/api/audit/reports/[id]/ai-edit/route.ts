@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createAdminClient } from '@/lib/supabase/admin'
 import Anthropic from '@anthropic-ai/sdk'
 import { AuditReportData } from '@/types/audit'
 
 export const maxDuration = 60
 
-function buildSupabase(token?: string) {
+function buildUserSupabase(token?: string) {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -51,16 +52,19 @@ type Params = { params: Promise<{ id: string }> }
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
-  const supabase = buildSupabase(token)
+  const supabase = buildUserSupabase(token)
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
-  // Verifica se o relatório pertence ao usuário
-  const { data: row } = await supabase
-    .from('audit_reports')
-    .select('id')
-    .eq('id', id)
-    .single()
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'admin'
+  const admin = createAdminClient()
+
+  // Verifica se o relatório existe e se o usuário tem acesso
+  const { data: row } = isAdmin
+    ? await admin.from('audit_reports').select('id').eq('id', id).single()
+    : await supabase.from('audit_reports').select('id').eq('id', id).single()
+
   if (!row) return Response.json({ error: 'Relatório não encontrado.' }, { status: 404 })
 
   const body = await req.json().catch(() => ({}))
