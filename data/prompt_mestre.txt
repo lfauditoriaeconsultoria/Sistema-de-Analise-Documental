@@ -59,7 +59,7 @@ Cada linha deve referenciar exatamente **uma seção** do documento de origem (n
 | **L** — Subitem/Tema | Subseção específica, no formato "número - nome" | Ex.: "5.5.4 - Medidas Disciplinares", "6.2 - Inspeção de Veículos"; usar "-" se o controle não tiver subitem próprio |
 | **M** — Processo auditado | **Texto exato, transcrito literalmente** do documento do cliente | Proibido parafrasear, resumir ou reescrever. Copiar o trecho palavra por palavra, incluindo eventuais erros de digitação do original, independentemente do assunto ou critério |
 | **N** — Período analisado | Janela temporal que a evidência deve cobrir | "Atual" para configurações/situações vigentes; "Últimos 12 meses", "Últimos 3 meses" etc. para rotinas periódicas — inferir a partir da periodicidade que o próprio requisito ou processo do cliente estabelece |
-| **O** — Evidência | Descrição da evidência **esperada** que o cliente deverá enviar para comprovar o controle | Redigir do zero (não é transcrição) — deve ser específica e verificável, indicando o tipo de documento/print/relatório/registro esperado e o que ele precisa demonstrar, adequado à natureza do critério (documental, fotográfica, sistêmica etc.) |
+| **O** — Evidência | Descrição da evidência **esperada** que o cliente deverá enviar para comprovar o controle | Redigir do zero (não é transcrição) — deve ser específica e verificável, indicando o tipo de documento/print/relatório/registro esperado e o que ele precisa demonstrar, adequado à natureza do critério (documental, fotográfica, sistêmica etc.). **Regra crítica:** a evidência solicitada NUNCA pode ser o próprio documento que originou o trecho auditado (coluna M) — o consultor já o possui e solicitá-lo novamente não faz sentido. Solicitar: (a) outros documentos *citados* no processo auditado (ex.: se o procedimento menciona um "Termo de Registro de Ocorrências", solicitar esse termo); (b) registros gerados pela *execução* do controle (logs, listas de presença, atas, relatórios, prints de sistema, fotografias, etc.); (c) documentos complementares que comprovem que o controle descrito existe e é aplicado na prática. Se o único comprovante concebível for o próprio documento analisado, solicitar evidência de sua *aplicação* (ex.: registro de treinamento assinado, comunicado de ciência, evidência de revisão periódica). |
 | **P** — Metodologia de análise | Como o auditor deve verificar a evidência quando ela chegar | Frase no padrão "Verificar, por meio de..., se..." — descreve o procedimento de checagem, não o resultado |
 
 ### Colunas fora de escopo neste módulo
@@ -81,6 +81,7 @@ Cada linha deve referenciar exatamente **uma seção** do documento de origem (n
 - Nunca usar documentos ou requisitos de um critério para preencher linhas de outro critério, mesmo que pareçam relacionados.
 - Se o mesmo assunto aparecer em mais de um documento do cliente, escolher o documento mais específico/normativo (procedimento > política genérica) e citar ambos em G se relevante.
 - Preservar acentuação, siglas e formatação de números tal como aparecem no original.
+- **Coluna O — proibido solicitar o documento auditado como evidência de si mesmo:** a evidência descrita na coluna O jamais pode ser o mesmo documento identificado nas colunas G/H/I cujo trecho aparece em M. O consultor já possui esse documento; solicitá-lo como evidência é redundante e inútil. A coluna O deve sempre apontar para um *artefato diferente* — um registro gerado pela execução do controle, um documento secundário mencionado no processo, uma comprovação de aplicação prática (log, ata, lista, print, foto, certificado, comunicado etc.).
 
 ## Exemplo de aplicação (padrão replicável a qualquer critério)
 
@@ -101,8 +102,10 @@ Preenchimento resultante:
 | L | 5.5.4 - Medidas Disciplinares |
 | M | *(texto acima, exatamente como está)* |
 | N | Atual |
-| O | Política de Segurança da Informação formalizada e aprovada, contemplando as medidas disciplinares aplicáveis aos infratores, acompanhada de evidência de divulgação/ciência aos colaboradores |
+| O | **Termo de Registro de Ocorrências** (documento citado no próprio trecho) preenchido em casos reais, e/ou lista de ciência/comunicado assinado pelos colaboradores comprovando que foram informados sobre as medidas disciplinares — *não* o POP TI 02 em si, pois o consultor já o possui |
 | P | Verificar se existe política formalizada e aprovada que preveja medidas disciplinares aplicáveis aos infratores |
+
+> **Por que a evidência não é o POP TI 02:** o documento analisado (G/H/I) já está em posse do consultor. A coluna O deve apontar para um artefato *diferente* que comprove a *aplicação* do controle — no exemplo, o Termo de Registro de Ocorrências mencionado no próprio trecho ou a comprovação de ciência dos funcionários.
 
 O mesmo padrão de extração se aplica, por exemplo, a um procedimento de Segurança Física ("o acesso de visitantes é registrado em livro de portaria e acompanhado por colaborador durante toda a permanência") ou de Parceiros Comerciais ("todo fornecedor de serviços logísticos deve apresentar certidões negativas antes da assinatura do contrato") — a lógica de M (verbatim), O (evidência redigida) e P (metodologia) não muda.
 
