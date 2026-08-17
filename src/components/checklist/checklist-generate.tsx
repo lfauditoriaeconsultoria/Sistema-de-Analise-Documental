@@ -310,7 +310,7 @@ export function ChecklistGenerate() {
           const line = part.trim()
           if (!line.startsWith('data:')) continue
           const jsonStr = line.slice('data:'.length).trim()
-          let evt: { type: string; message?: string; filename?: string; count?: number; file?: string } | null = null
+          let evt: { type: string; message?: string; filename?: string; count?: number; file?: string; signedUrl?: string } | null = null
           try { evt = JSON.parse(jsonStr) } catch { continue }
           if (!evt) continue
 
@@ -318,12 +318,23 @@ export function ChecklistGenerate() {
             setProgress(evt.message)
           } else if (evt.type === 'error') {
             throw new Error(evt.message ?? 'Erro ao gerar checklist.')
-          } else if (evt.type === 'done' && evt.file) {
-            // Decodifica base64 → Uint8Array → Blob
-            const binary = Uint8Array.from(atob(evt.file), c => c.charCodeAt(0))
-            const blob   = new Blob([binary], {
-              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            })
+          } else if (evt.type === 'done') {
+            let blob: Blob
+            if (evt.signedUrl) {
+              // Preferencial: baixa o arquivo via URL assinada (evento SSE menor)
+              setProgress('Baixando planilha...')
+              const fileRes = await fetch(evt.signedUrl)
+              if (!fileRes.ok) throw new Error('Falha ao baixar o arquivo gerado.')
+              blob = await fileRes.blob()
+            } else if (evt.file) {
+              // Fallback: decodifica base64 embutido no evento
+              const binary = Uint8Array.from(atob(evt.file), c => c.charCodeAt(0))
+              blob = new Blob([binary], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              })
+            } else {
+              throw new Error('Resposta inválida: arquivo não encontrado.')
+            }
             setResult({ filename: evt.filename ?? 'checklist.xlsx', blob, count: evt.count ?? 0 })
             setStage('done')
             return

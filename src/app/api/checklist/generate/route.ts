@@ -164,8 +164,8 @@ async function fillTemplate(
 
 /* ── Handler principal ── */
 export async function POST(req: NextRequest) {
-  // ── Validação e leitura do body ANTES de abrir o stream ──────────────────
-  // (o body só pode ser lido uma vez; deve acontecer aqui, fora do ReadableStream)
+  // ── 1. Leitura e validação do body — DEVE ser antes de criar o stream ────
+  // (o body de uma Request só pode ser lido uma vez)
   const formData = await req.formData()
   const criteriosRaw = formData.getAll('criterios') as string[]
   const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
@@ -175,21 +175,19 @@ export async function POST(req: NextRequest) {
   const files    = formData.getAll('files') as File[]
 
   if (!criterios.length) return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
-  if (!cliente)  return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
-  if (!files.length) return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
+  if (!cliente)          return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
+  if (!files.length)     return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const docBlocks: any[] = []
   let totalSize = 0
 
   for (const file of files) {
-    if (file.size > 20 * 1024 * 1024) {
+    if (file.size > 20 * 1024 * 1024)
       return Response.json({ error: `Arquivo "${file.name}" ultrapassa 20 MB.` }, { status: 413 })
-    }
     totalSize += file.size
-    if (totalSize > 60 * 1024 * 1024) {
+    if (totalSize > 60 * 1024 * 1024)
       return Response.json({ error: 'Tamanho total dos arquivos ultrapassa 60 MB.' }, { status: 413 })
-    }
 
     const buffer = Buffer.from(await file.arrayBuffer())
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
@@ -203,62 +201,89 @@ export async function POST(req: NextRequest) {
     } else if (ext === 'docx' || ext === 'doc') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await mammoth.extractRawText({ buffer: buffer as any })
-      if (result.value.trim()) {
+      if (result.value.trim())
         docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${result.value.trim()}` })
-      }
     } else if (['txt', 'md', 'csv'].includes(ext)) {
       const text = buffer.toString('utf-8')
-      if (text.trim()) {
+      if (text.trim())
         docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${text.trim()}` })
-      }
     }
   }
 
-  if (!docBlocks.length) {
+  if (!docBlocks.length)
     return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
-  }
 
-  // ── Resposta SSE — evita 504 mantendo a conexão viva durante o processamento ──
-  // O Vercel/proxy fecha a conexão se nenhum byte é enviado por ~30 s.
-  // Com SSE a primeira byte é enviada imediatamente e pings periódicos
-  // mantêm o keep-alive enquanto o Claude processa.
+  // ── 2. Auth do usuário — lido AQUI enquanto o contexto de cookies existe ─
+  // Dentro do ReadableStream async (após return da Response) os cookies podem
+  // não estar disponíveis dependendo do runtime. Capturamos agora.
+  let currentUserId: string | null = null
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    currentUserId = user?.id ?? null
+  } catch { /* sem auth — histórico não será salvo */ }
+
+  // ── 3. Cria o stream SSE com start() SÍNCRONO ─────────────────────────────
+  // IMPORTANTE: usar "async start()" faz o runtime aguardar a Promise resolver
+  // antes de começar a enviar bytes ao cliente — os pings não chegam e o proxy
+  // fecha a conexão por idle timeout (~30 s). Com start() síncrono + IIFE
+  // async, o stream começa a fluir imediatamente ao retornar a Response.
   const enc = new TextEncoder()
-  const sseStream = new ReadableStream({
-    async start(ctrl) {
-      const send = (data: object) => {
-        try { ctrl.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`)) } catch { /* já fechado */ }
+  let sseCtrl!: ReadableStreamDefaultController<Uint8Array>
+
+  const sseStream = new ReadableStream<Uint8Array>({
+    start(ctrl) { sseCtrl = ctrl },    // síncrono: captura controller e retorna
+  })
+
+  // ── 4. Retorna a Response ANTES de processar ──────────────────────────────
+  // O IIFE abaixo começa a executar de forma assíncrona APÓS o return.
+  // Isso garante que os headers SSE chegam ao browser imediatamente.
+  const sseResponse = new Response(sseStream, {
+    headers: {
+      'Content-Type':      'text/event-stream; charset=utf-8',
+      'Cache-Control':     'no-cache, no-transform',
+      'Connection':        'keep-alive',
+      'X-Accel-Buffering': 'no',   // desativa buffering nginx / Vercel edge
+    },
+  })
+
+  // ── 5. Processamento assíncrono (fire-and-forget) ─────────────────────────
+  void (async () => {
+    const send = (data: object) => {
+      try { sseCtrl.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`)) } catch { /* stream cancelado */ }
+    }
+
+    // Ping imediato + intervalo de 15 s
+    send({ type: 'ping' })
+    const pingId = setInterval(() => send({ type: 'ping' }), 15_000)
+
+    try {
+      // ── Critérios OEA ───────────────────────────────────────────────────
+      send({ type: 'progress', message: 'Buscando critérios OEA...' })
+      let criteriaContexts: string[] = []
+      try {
+        const admin = createAdminClient()
+        const { data: criteriaRows, error } = await admin
+          .from('oea_criteria')
+          .select('number, name, description, items:oea_items(item_number, description, qualificador)')
+          .in('name', criterios)
+          .order('number', { ascending: true })
+
+        if (error) {
+          console.warn('[checklist/generate] erro critérios:', error.message)
+        } else if (criteriaRows?.length) {
+          criteriaContexts = criteriaRows.map(row => buildCriteriaContext(row as OeaCriteriaRow))
+          console.log('[checklist/generate] critérios carregados:', criteriaRows.map(r => r.name).join(', '))
+        }
+      } catch (dbErr) {
+        console.warn('[checklist/generate] falha DB:', dbErr)
       }
 
-      // Ping a cada 20 s para manter conexão viva
-      const pingId = setInterval(() => send({ type: 'ping' }), 20_000)
+      const criteriosLabel = criterios.join(', ')
+      const promptMestre   = loadPromptMestre()
 
-      try {
-        // ── Critérios OEA ─────────────────────────────────────────────────────
-        send({ type: 'progress', message: 'Buscando critérios OEA...' })
-        let criteriaContexts: string[] = []
-        try {
-          const admin = createAdminClient()
-          const { data: criteriaRows, error } = await admin
-            .from('oea_criteria')
-            .select('number, name, description, items:oea_items(item_number, description, qualificador)')
-            .in('name', criterios)
-            .order('number', { ascending: true })
-
-          if (error) {
-            console.warn('[checklist/generate] erro ao buscar critérios:', error.message)
-          } else if (criteriaRows?.length) {
-            criteriaContexts = criteriaRows.map(row => buildCriteriaContext(row as OeaCriteriaRow))
-            console.log('[checklist/generate] critérios:', criteriaRows.map(r => `${r.number}. ${r.name}`).join(', '))
-          }
-        } catch (dbErr) {
-          console.warn('[checklist/generate] falha ao consultar banco:', dbErr)
-        }
-
-        const criteriosLabel = criterios.join(', ')
-        const promptMestre   = loadPromptMestre()
-
-        const normativaSection = criteriaContexts.length > 0
-          ? `━━━ REFERÊNCIA NORMATIVA ━━━
+      const normativaSection = criteriaContexts.length > 0
+        ? `━━━ REFERÊNCIA NORMATIVA ━━━
 
 Os requisitos oficiais dos critérios selecionados foram extraídos do banco de dados do sistema.
 Use estas listas como fonte DEFINITIVA para as colunas E (requisito) e F (qualificador).
@@ -273,13 +298,13 @@ Regras:
 - NUNCA repita o mesmo número de requisito para todos os itens.
 
 ${criteriaContexts.join('\n\n━━━\n\n')}`
-          : `━━━ REFERÊNCIA NORMATIVA ━━━
+        : `━━━ REFERÊNCIA NORMATIVA ━━━
 
 Use seu conhecimento do Programa OEA (Portaria Coana nº 154/2024) para identificar os requisitos
 corretos de cada processo auditado. Os números VARIAM por item — nunca repita o mesmo requisito.
 O qualificador ("Obrigatório" ou "Recomendável") segue a classificação oficial do programa.`
 
-        const systemPrompt = `${promptMestre}
+      const systemPrompt = `${promptMestre}
 
 ${normativaSection}
 
@@ -317,123 +342,138 @@ REGRAS CRÍTICAS:
 - Extraia TODOS os trechos auditáveis relevantes para os critérios: ${criteriosLabel}
 - Não toque nas colunas Q em diante (etapa de conformidade)`
 
-        const userMessage = `Critério(s) OEA selecionado(s): ${criteriosLabel}
+      const userMessage = `Critério(s) OEA selecionado(s): ${criteriosLabel}
 Cliente: ${cliente}
 
 Analise os documentos abaixo e preencha o checklist de auditoria conforme as instruções.
 Para cada item, identifique o critério correto (coluna D), o requisito (coluna E) e o qualificador (coluna F).
 Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userContent: any[] = [{ type: 'text', text: userMessage }, ...docBlocks]
+
+      // ── Chamada ao Claude ─────────────────────────────────────────────
+      send({ type: 'progress', message: 'Analisando documentos com IA...' })
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+
+      const message = await client.messages.stream({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 64000,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const userContent: any[] = [{ type: 'text', text: userMessage }, ...docBlocks]
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
+        messages: [{ role: 'user', content: userContent }],
+      }).finalMessage()
 
-        // ── Chamada ao Claude ─────────────────────────────────────────────────
-        send({ type: 'progress', message: 'Analisando documentos com IA...' })
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+      console.log(
+        '[checklist/generate] stop_reason:', message.stop_reason,
+        '| output_tokens:', message.usage?.output_tokens,
+        '| input_tokens:', message.usage?.input_tokens,
+      )
 
-        const message = await client.messages.stream({
-          model:      'claude-sonnet-4-6',
-          max_tokens: 64000,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
-          messages: [{ role: 'user', content: userContent }],
-        }).finalMessage()
+      if (message.stop_reason === 'max_tokens') {
+        console.error('[checklist/generate] max_tokens atingido')
+        // NÃO fechar o stream aqui — o finally fará isso
+        send({ type: 'error', message: 'O checklist gerado é muito extenso. Reduza a quantidade de documentos ou divida em lotes menores e tente novamente.' })
+        return   // vai para finally → ctrl.close()
+      }
 
-        console.log(
-          '[checklist/generate] stop_reason:', message.stop_reason,
-          '| cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
-          '| cache_read:', message.usage?.cache_read_input_tokens ?? 0,
-          '| input:', message.usage?.input_tokens,
-          '| output:', message.usage?.output_tokens,
-        )
+      const rawText = message.content
+        .filter(b => b.type === 'text')
+        .map(b => (b as { type: 'text'; text: string }).text)
+        .join('')
 
-        if (message.stop_reason === 'max_tokens') {
-          console.error('[checklist/generate] resposta cortada por max_tokens')
-          send({ type: 'error', message: 'O checklist gerado é muito extenso. Reduza a quantidade de documentos ou divida em lotes menores e tente novamente.' })
-          clearInterval(pingId); ctrl.close(); return
-        }
+      // ── Parse JSON ──────────────────────────────────────────────────────
+      send({ type: 'progress', message: 'Gerando planilha...' })
+      let parsed: { items: ChecklistItem[] } | undefined
+      const tryParse = (s: string) => { parsed = JSON.parse(s); return true }
 
-        const rawText = message.content
-          .filter(b => b.type === 'text')
-          .map(b => (b as { type: 'text'; text: string }).text)
-          .join('')
+      const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+      const jsonStr    = fenceMatch
+        ? fenceMatch[1].trim()
+        : (() => { const a = rawText.indexOf('{'); const b = rawText.lastIndexOf('}'); return a !== -1 && b > a ? rawText.slice(a, b + 1) : rawText.trim() })()
 
-        // ── Parse JSON ────────────────────────────────────────────────────────
-        send({ type: 'progress', message: 'Gerando planilha...' })
-        let parsed: { items: ChecklistItem[] } | undefined
-        const tryParse = (s: string) => { parsed = JSON.parse(s); return true }
+      let parseOk = false
+      for (const attempt of [
+        () => tryParse(jsonStr),
+        () => tryParse(jsonStr.replace(/,\s*([}\]])/g, '$1')),
+      ]) {
+        try { parseOk = attempt(); break } catch { /* next attempt */ }
+      }
 
-        const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
-        const jsonStr    = fenceMatch
-          ? fenceMatch[1].trim()
-          : (() => { const a = rawText.indexOf('{'); const b = rawText.lastIndexOf('}'); return a !== -1 && b > a ? rawText.slice(a, b + 1) : rawText.trim() })()
+      if (!parseOk || !parsed?.items?.length) {
+        console.error('[checklist/generate] parse falhou. Raw (500):', rawText.slice(0, 500))
+        // NÃO fechar o stream aqui — o finally fará isso
+        send({ type: 'error', message: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' })
+        return   // vai para finally → ctrl.close()
+      }
 
-        let parseOk = false
-        for (const attempt of [
-          () => tryParse(jsonStr),
-          () => tryParse(jsonStr.replace(/,\s*([}\]])/g, '$1')),
-        ]) {
-          try { parseOk = attempt(); break } catch { /* continue */ }
-        }
+      const items        = parsed.items.map((it, i) => ({ ...it, id: i + 1 }))
+      const templateBuf  = loadTemplate()
+      const xlsxBytes    = await fillTemplate(templateBuf, items)
+      const filenameXlsx = `${buildFilename(cliente)}.xlsx`
 
-        if (!parseOk || !parsed?.items?.length) {
-          console.error('[checklist/generate] parse falhou. Raw:', rawText.slice(0, 500))
-          send({ type: 'error', message: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' })
-          clearInterval(pingId); ctrl.close(); return
-        }
+      // ── Histórico + entrega do arquivo ──────────────────────────────────
+      // Estratégia: faz upload para Storage → gera URL assinada (evento SSE pequeno).
+      // Fallback para base64 se o upload falhar (sem Storage ou sem auth).
+      let signedUrl: string | null = null
 
-        const items       = parsed.items.map((it, i) => ({ ...it, id: i + 1 }))
-        const templateBuf = loadTemplate()
-        const xlsxBytes   = await fillTemplate(templateBuf, items)
-        const filename    = buildFilename(cliente)
-        const filenameXlsx = `${filename}.xlsx`
-
-        // ── Histórico (best-effort) ───────────────────────────────────────────
+      if (currentUserId) {
         try {
-          const supabase = await createClient()
-          const { data: { user } } = await supabase.auth.getUser()
-          if (user) {
-            const admin       = createAdminClient()
-            const checklistId = crypto.randomUUID()
-            const filePath    = `${user.id}/${checklistId}.xlsx`
-            const { error: uploadErr } = await admin.storage
+          const admin       = createAdminClient()
+          const checklistId = crypto.randomUUID()
+          const filePath    = `${currentUserId}/${checklistId}.xlsx`
+
+          const { error: uploadErr } = await admin.storage
+            .from('checklists')
+            .upload(filePath, Buffer.from(xlsxBytes), {
+              contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            })
+
+          if (uploadErr) {
+            console.warn('[checklist/generate] upload falhou:', uploadErr.message)
+          } else {
+            // Salva histórico
+            await admin.from('checklist_history').insert({
+              id:          checklistId,
+              user_id:     currentUserId,
+              cliente,
+              criterio:    criteriosLabel,
+              filename:    filenameXlsx,
+              items_count: items.length,
+              file_path:   filePath,
+            })
+
+            // URL assinada válida por 10 minutos (tempo suficiente para o download)
+            const { data: signed } = await admin.storage
               .from('checklists')
-              .upload(filePath, Buffer.from(xlsxBytes), {
-                contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              })
-            if (!uploadErr) {
-              await admin.from('checklist_history').insert({
-                id: checklistId, user_id: user.id, cliente,
-                criterio: criteriosLabel, filename: filenameXlsx,
-                items_count: items.length, file_path: filePath,
-              })
-              console.log('[checklist/generate] salvo no histórico:', checklistId)
-            }
+              .createSignedUrl(filePath, 600)
+
+            signedUrl = signed?.signedUrl ?? null
+            console.log('[checklist/generate] salvo no histórico:', checklistId, '| signedUrl:', !!signedUrl)
           }
         } catch (histErr) {
-          console.warn('[checklist/generate] falha ao salvar histórico:', histErr)
+          console.warn('[checklist/generate] falha histórico:', histErr)
         }
+      }
 
-        // ── Envia arquivo como base64 no evento final ─────────────────────────
+      if (signedUrl) {
+        // Evento mínimo (~300 bytes) — arquivo baixado separadamente via URL assinada
+        send({ type: 'done', filename: filenameXlsx, count: items.length, signedUrl })
+      } else {
+        // Fallback: base64 embutido no evento (funciona sem Storage)
+        console.log('[checklist/generate] fallback base64 — sem URL assinada')
         const base64 = Buffer.from(xlsxBytes).toString('base64')
         send({ type: 'done', filename: filenameXlsx, count: items.length, file: base64 })
-
-      } catch (err) {
-        console.error('[checklist/generate]', err)
-        send({ type: 'error', message: err instanceof Error ? err.message : 'Erro interno.' })
-      } finally {
-        clearInterval(pingId)
-        ctrl.close()
       }
-    },
-  })
 
-  return new Response(sseStream, {
-    headers: {
-      'Content-Type':  'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection':    'keep-alive',
-      'X-Accel-Buffering': 'no',   // desativa buffering no nginx/Vercel
-    },
-  })
+    } catch (err) {
+      console.error('[checklist/generate] erro geral:', err)
+      send({ type: 'error', message: err instanceof Error ? err.message : 'Erro interno no servidor.' })
+    } finally {
+      clearInterval(pingId)
+      try { sseCtrl.close() } catch { /* já fechado ou cancelado */ }
+    }
+  })()
+
+  return sseResponse
 }
