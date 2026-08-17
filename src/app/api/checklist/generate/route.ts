@@ -164,8 +164,9 @@ async function fillTemplate(
 
 /* ── Handler principal ── */
 export async function POST(req: NextRequest) {
-  // ── 1. Leitura e validação do body — DEVE ser antes de criar o stream ────
-  // (o body de uma Request só pode ser lido uma vez)
+  const T = () => new Date().toISOString()
+
+  // ── 1. Leitura e validação do body ────────────────────────────────────────
   const formData = await req.formData()
   const criteriosRaw = formData.getAll('criterios') as string[]
   const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
@@ -213,9 +214,7 @@ export async function POST(req: NextRequest) {
   if (!docBlocks.length)
     return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
 
-  // ── 2. Auth do usuário — lido AQUI enquanto o contexto de cookies existe ─
-  // Dentro do ReadableStream async (após return da Response) os cookies podem
-  // não estar disponíveis dependendo do runtime. Capturamos agora.
+  // ── 2. Auth — antes de criar o stream (contexto de cookies disponível aqui) ─
   let currentUserId: string | null = null
   try {
     const supabase = await createClient()
@@ -223,43 +222,50 @@ export async function POST(req: NextRequest) {
     currentUserId = user?.id ?? null
   } catch { /* sem auth — histórico não será salvo */ }
 
-  // ── 3. Cria o stream SSE com start() SÍNCRONO ─────────────────────────────
-  // IMPORTANTE: usar "async start()" faz o runtime aguardar a Promise resolver
-  // antes de começar a enviar bytes ao cliente — os pings não chegam e o proxy
-  // fecha a conexão por idle timeout (~30 s). Com start() síncrono + IIFE
-  // async, o stream começa a fluir imediatamente ao retornar a Response.
+  console.log(`[SSE][${T()}] request ok — criterios:${criterios.join(',')} cliente:${cliente} files:${files.length} userId:${currentUserId}`)
+
+  // ── 3. TransformStream SSE ────────────────────────────────────────────────
+  // TransformStream tem melhor suporte de streaming incremental no Vercel do que
+  // ReadableStream com start() síncrono: cada write() entrega bytes ao reader
+  // imediatamente sem buffering interno adicional.
   const enc = new TextEncoder()
-  let sseCtrl!: ReadableStreamDefaultController<Uint8Array>
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
 
-  const sseStream = new ReadableStream<Uint8Array>({
-    start(ctrl) { sseCtrl = ctrl },    // síncrono: captura controller e retorna
-  })
+  // Fila de escrita sequencial — impede sobreposição entre setInterval e IIFE
+  let writeQueue = Promise.resolve()
+  const send = (data: object) => {
+    const chunk = enc.encode(`data: ${JSON.stringify(data)}\n\n`)
+    writeQueue = writeQueue
+      .then(() => writer.write(chunk))
+      .catch(() => { /* stream cancelado — ignora */ })
+  }
 
-  // ── 4. Retorna a Response ANTES de processar ──────────────────────────────
-  // O IIFE abaixo começa a executar de forma assíncrona APÓS o return.
-  // Isso garante que os headers SSE chegam ao browser imediatamente.
-  const sseResponse = new Response(sseStream, {
+  // ── 4. Response retornada IMEDIATAMENTE ───────────────────────────────────
+  const sseResponse = new Response(readable, {
     headers: {
       'Content-Type':      'text/event-stream; charset=utf-8',
       'Cache-Control':     'no-cache, no-transform',
       'Connection':        'keep-alive',
-      'X-Accel-Buffering': 'no',   // desativa buffering nginx / Vercel edge
+      'X-Accel-Buffering': 'no',
     },
   })
 
   // ── 5. Processamento assíncrono (fire-and-forget) ─────────────────────────
   void (async () => {
-    const send = (data: object) => {
-      try { sseCtrl.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`)) } catch { /* stream cancelado */ }
-    }
+    console.log(`[SSE][${T()}] IIFE started`)
 
-    // Ping imediato + intervalo de 15 s
+    // Ping imediato + intervalo de 15 s (keepalive contra idle timeout)
     send({ type: 'ping' })
-    const pingId = setInterval(() => send({ type: 'ping' }), 15_000)
+    const pingId = setInterval(() => {
+      console.log(`[SSE][${T()}] interval ping`)
+      send({ type: 'ping' })
+    }, 15_000)
 
     try {
       // ── Critérios OEA ───────────────────────────────────────────────────
       send({ type: 'progress', message: 'Buscando critérios OEA...' })
+      console.log(`[SSE][${T()}] fetching criteria from DB`)
       let criteriaContexts: string[] = []
       try {
         const admin = createAdminClient()
@@ -270,13 +276,15 @@ export async function POST(req: NextRequest) {
           .order('number', { ascending: true })
 
         if (error) {
-          console.warn('[checklist/generate] erro critérios:', error.message)
+          console.warn(`[SSE][${T()}] DB error:`, error.message)
         } else if (criteriaRows?.length) {
           criteriaContexts = criteriaRows.map(row => buildCriteriaContext(row as OeaCriteriaRow))
-          console.log('[checklist/generate] critérios carregados:', criteriaRows.map(r => r.name).join(', '))
+          console.log(`[SSE][${T()}] criteria loaded:`, criteriaRows.map(r => r.name).join(', '))
+        } else {
+          console.log(`[SSE][${T()}] no criteria found for:`, criterios.join(', '))
         }
       } catch (dbErr) {
-        console.warn('[checklist/generate] falha DB:', dbErr)
+        console.warn(`[SSE][${T()}] DB exception:`, dbErr)
       }
 
       const criteriosLabel = criterios.join(', ')
@@ -352,35 +360,56 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userContent: any[] = [{ type: 'text', text: userMessage }, ...docBlocks]
 
-      // ── Chamada ao Claude ─────────────────────────────────────────────
+      // ── Chamada ao Claude com pings vinculados ao fluxo de tokens ────────
+      // Usando .stream() ao invés de .create() para que o SDK não bloqueie.
+      // Adicionalmente, cada token recebido serve como oportunidade de verificar
+      // se deve enviar um ping — garantindo que dados fluem para o cliente
+      // enquanto o Claude ainda está gerando (período mais longo de silêncio).
       send({ type: 'progress', message: 'Analisando documentos com IA...' })
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+      console.log(`[SSE][${T()}] starting Anthropic stream`)
 
-      const message = await client.messages.stream({
+      const anthropicStream = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }).messages.stream({
         model:      'claude-sonnet-4-6',
         max_tokens: 64000,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
         messages: [{ role: 'user', content: userContent }],
-      }).finalMessage()
+      })
+
+      // Pings a cada 8 s vinculados ao fluxo de tokens do Claude
+      let lastTokenPingTime = Date.now()
+      let tokenCount = 0
+      anthropicStream.on('text', () => {
+        tokenCount++
+        const now = Date.now()
+        if (now - lastTokenPingTime >= 8_000) {
+          console.log(`[SSE][${T()}] token ping (token ~${tokenCount})`)
+          send({ type: 'ping' })
+          lastTokenPingTime = now
+        }
+      })
+
+      const message = await anthropicStream.finalMessage()
 
       console.log(
-        '[checklist/generate] stop_reason:', message.stop_reason,
+        `[SSE][${T()}] Claude done — stop_reason:`, message.stop_reason,
         '| output_tokens:', message.usage?.output_tokens,
         '| input_tokens:', message.usage?.input_tokens,
+        '| total_tokens:', (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0),
       )
 
       if (message.stop_reason === 'max_tokens') {
-        console.error('[checklist/generate] max_tokens atingido')
-        // NÃO fechar o stream aqui — o finally fará isso
+        console.error(`[SSE][${T()}] max_tokens atingido`)
         send({ type: 'error', message: 'O checklist gerado é muito extenso. Reduza a quantidade de documentos ou divida em lotes menores e tente novamente.' })
-        return   // vai para finally → ctrl.close()
+        return
       }
 
       const rawText = message.content
         .filter(b => b.type === 'text')
         .map(b => (b as { type: 'text'; text: string }).text)
         .join('')
+
+      console.log(`[SSE][${T()}] rawText length:`, rawText.length)
 
       // ── Parse JSON ──────────────────────────────────────────────────────
       send({ type: 'progress', message: 'Gerando planilha...' })
@@ -401,20 +430,21 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
       }
 
       if (!parseOk || !parsed?.items?.length) {
-        console.error('[checklist/generate] parse falhou. Raw (500):', rawText.slice(0, 500))
-        // NÃO fechar o stream aqui — o finally fará isso
+        console.error(`[SSE][${T()}] JSON parse failed — rawText(500):`, rawText.slice(0, 500))
         send({ type: 'error', message: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' })
-        return   // vai para finally → ctrl.close()
+        return
       }
+
+      console.log(`[SSE][${T()}] parsed items:`, parsed.items.length)
 
       const items        = parsed.items.map((it, i) => ({ ...it, id: i + 1 }))
       const templateBuf  = loadTemplate()
       const xlsxBytes    = await fillTemplate(templateBuf, items)
       const filenameXlsx = `${buildFilename(cliente)}.xlsx`
 
-      // ── Histórico + entrega do arquivo ──────────────────────────────────
-      // Estratégia: faz upload para Storage → gera URL assinada (evento SSE pequeno).
-      // Fallback para base64 se o upload falhar (sem Storage ou sem auth).
+      console.log(`[SSE][${T()}] XLSX generated — bytes:`, xlsxBytes.byteLength)
+
+      // ── Upload + URL assinada (fallback para base64) ─────────────────────
       let signedUrl: string | null = null
 
       if (currentUserId) {
@@ -423,6 +453,7 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
           const checklistId = crypto.randomUUID()
           const filePath    = `${currentUserId}/${checklistId}.xlsx`
 
+          console.log(`[SSE][${T()}] uploading to storage:`, filePath)
           const { error: uploadErr } = await admin.storage
             .from('checklists')
             .upload(filePath, Buffer.from(xlsxBytes), {
@@ -430,48 +461,49 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
             })
 
           if (uploadErr) {
-            console.warn('[checklist/generate] upload falhou:', uploadErr.message)
+            console.warn(`[SSE][${T()}] upload error:`, uploadErr.message)
           } else {
-            // Salva histórico
             await admin.from('checklist_history').insert({
-              id:          checklistId,
-              user_id:     currentUserId,
-              cliente,
-              criterio:    criteriosLabel,
-              filename:    filenameXlsx,
-              items_count: items.length,
-              file_path:   filePath,
+              id: checklistId, user_id: currentUserId, cliente,
+              criterio: criteriosLabel, filename: filenameXlsx,
+              items_count: items.length, file_path: filePath,
             })
-
-            // URL assinada válida por 10 minutos (tempo suficiente para o download)
             const { data: signed } = await admin.storage
               .from('checklists')
               .createSignedUrl(filePath, 600)
-
             signedUrl = signed?.signedUrl ?? null
-            console.log('[checklist/generate] salvo no histórico:', checklistId, '| signedUrl:', !!signedUrl)
+            console.log(`[SSE][${T()}] history saved — signedUrl:`, !!signedUrl)
           }
         } catch (histErr) {
-          console.warn('[checklist/generate] falha histórico:', histErr)
+          console.warn(`[SSE][${T()}] history/storage exception:`, histErr)
         }
       }
 
       if (signedUrl) {
-        // Evento mínimo (~300 bytes) — arquivo baixado separadamente via URL assinada
+        console.log(`[SSE][${T()}] sending done event with signedUrl`)
         send({ type: 'done', filename: filenameXlsx, count: items.length, signedUrl })
       } else {
-        // Fallback: base64 embutido no evento (funciona sem Storage)
-        console.log('[checklist/generate] fallback base64 — sem URL assinada')
+        console.log(`[SSE][${T()}] sending done event with base64 fallback`)
         const base64 = Buffer.from(xlsxBytes).toString('base64')
         send({ type: 'done', filename: filenameXlsx, count: items.length, file: base64 })
       }
 
+      console.log(`[SSE][${T()}] done event queued — waiting for writeQueue to flush`)
+      // Aguarda a fila de escritas ser completamente drenada antes de fechar
+      await writeQueue
+
+      console.log(`[SSE][${T()}] writeQueue flushed — closing stream`)
+
     } catch (err) {
-      console.error('[checklist/generate] erro geral:', err)
+      console.error(`[SSE][${T()}] IIFE error:`, err)
       send({ type: 'error', message: err instanceof Error ? err.message : 'Erro interno no servidor.' })
+      await writeQueue
     } finally {
       clearInterval(pingId)
-      try { sseCtrl.close() } catch { /* já fechado ou cancelado */ }
+      try { await writer.close() } catch (e) {
+        console.warn(`[SSE][${T()}] writer.close error:`, e)
+      }
+      console.log(`[SSE][${T()}] stream closed`)
     }
   })()
 
