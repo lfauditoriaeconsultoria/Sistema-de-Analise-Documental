@@ -8,9 +8,13 @@ import {
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
-const ACCEPT_TYPES = '.pdf,.docx,.doc,.txt,.md'
-const MAX_FILE_MB  = 20
-const MAX_TOTAL_MB = 60
+const ACCEPT_TYPES      = '.pdf,.docx,.doc,.txt,.md'
+const MAX_FILE_MB       = 20
+const MAX_TOTAL_MB      = 60
+// Limite seguro abaixo do teto de 4.5 MB do Vercel para request bodies.
+// Quando o total ultrapassa esse valor, os arquivos são enviados diretamente
+// ao Supabase Storage (sem passar pelo Vercel) e a API recebe apenas os paths.
+const VERCEL_BODY_LIMIT = 3.5 * 1024 * 1024
 
 /* ── Tipos ─────────────────────────────────────────────────────────────────── */
 interface OeaCriteria {
@@ -261,6 +265,122 @@ export function ChecklistGenerate() {
     addFiles(e.dataTransfer.files)
   }, [addFiles])
 
+  /* ── Helpers de geração ── */
+
+  // Lê o stream SSE e processa eventos (compartilhado entre os dois modos)
+  async function readSSE(res: Response): Promise<void> {
+    const reader  = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let   buf     = ''
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+
+      // Processa eventos completos (separados por \n\n)
+      const parts = buf.split('\n\n')
+      buf = parts.pop() ?? ''
+
+      for (const part of parts) {
+        const line = part.trim()
+        if (!line.startsWith('data:')) continue
+        const jsonStr = line.slice('data:'.length).trim()
+        let evt: { type: string; message?: string; filename?: string; count?: number; file?: string; signedUrl?: string } | null = null
+        try { evt = JSON.parse(jsonStr) } catch { continue }
+        if (!evt) continue
+
+        if (evt.type === 'progress' && evt.message) {
+          setProgress(evt.message)
+        } else if (evt.type === 'error') {
+          throw new Error(evt.message ?? 'Erro ao gerar checklist.')
+        } else if (evt.type === 'done') {
+          let blob: Blob
+          if (evt.signedUrl) {
+            // Preferencial: baixa via URL assinada (evento SSE menor)
+            setProgress('Baixando planilha...')
+            const fileRes = await fetch(evt.signedUrl)
+            if (!fileRes.ok) throw new Error('Falha ao baixar o arquivo gerado.')
+            blob = await fileRes.blob()
+          } else if (evt.file) {
+            // Fallback: decodifica base64 embutido no evento
+            const binary = Uint8Array.from(atob(evt.file), c => c.charCodeAt(0))
+            blob = new Blob([binary], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            })
+          } else {
+            throw new Error('Resposta inválida: arquivo não encontrado.')
+          }
+          setResult({ filename: evt.filename ?? 'checklist.xlsx', blob, count: evt.count ?? 0 })
+          setStage('done')
+          return
+        }
+        // evt.type === 'ping' — ignorado
+      }
+    }
+
+    // Stream encerrou sem evento 'done'
+    throw new Error('A geração foi interrompida. Tente novamente.')
+  }
+
+  // Modo 1: total ≤ 3.5 MB — envia diretamente como multipart/form-data
+  async function generateViaFormData(): Promise<void> {
+    const fd = new FormData()
+    criterios.forEach(c => fd.append('criterios', c))
+    fd.append('cliente', cliente.trim())
+    files.forEach(f => fd.append('files', f.file))
+
+    const res = await fetch('/api/checklist/generate', { method: 'POST', body: fd })
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      throw new Error(j.error ?? `Erro ${res.status}`)
+    }
+    await readSSE(res)
+  }
+
+  // Modo 2: total > 3.5 MB — upload direto ao Supabase Storage (bypassa limite do Vercel),
+  // depois envia apenas os paths para a API processar
+  async function generateViaStorage(): Promise<void> {
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) throw new Error('Sessão expirada. Faça login novamente.')
+
+    const userId = session.user.id
+    const paths: string[] = []
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      setProgress(`Enviando arquivo ${i + 1} de ${files.length}: ${f.file.name}`)
+
+      // Path segue a política RLS: userId/uuid-nome — o bucket RLS exige userId como 1ª pasta
+      const safeName    = f.file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+      const storagePath = `${userId}/${crypto.randomUUID()}-${safeName}`
+
+      const { error } = await supabase.storage
+        .from('checklist-uploads')
+        .upload(storagePath, f.file)
+
+      if (error) throw new Error(`Erro ao enviar "${f.file.name}": ${error.message}`)
+      paths.push(storagePath)
+    }
+
+    setProgress('Conectando com a IA...')
+
+    const res = await fetch('/api/checklist/generate', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ criterios, cliente: cliente.trim(), filePaths: paths }),
+    })
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      throw new Error(j.error ?? `Erro ${res.status}`)
+    }
+
+    await readSSE(res)
+  }
+
   /* ── Geração via SSE ── */
   async function handleGenerate() {
     setError('')
@@ -278,73 +398,13 @@ export function ChecklistGenerate() {
     setResult(null)
 
     try {
-      const fd = new FormData()
-      criterios.forEach(c => fd.append('criterios', c))
-      fd.append('cliente', cliente.trim())
-      files.forEach(f => fd.append('files', f.file))
-
-      const res = await fetch('/api/checklist/generate', { method: 'POST', body: fd })
-
-      // Erros de validação (400/413) chegam como JSON normal
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? `Erro ${res.status}`)
+      if (totalSize > VERCEL_BODY_LIMIT) {
+        // Arquivos grandes: upload direto ao Supabase, API recebe só os paths
+        await generateViaStorage()
+      } else {
+        // Arquivos pequenos: multipart direto (mais simples, sem etapa extra)
+        await generateViaFormData()
       }
-
-      // Leitura do stream SSE
-      const reader  = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let   buf     = ''
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-
-        // Processa eventos completos (separados por \n\n)
-        const parts = buf.split('\n\n')
-        buf = parts.pop() ?? ''   // último chunk possivelmente incompleto
-
-        for (const part of parts) {
-          const line = part.trim()
-          if (!line.startsWith('data:')) continue
-          const jsonStr = line.slice('data:'.length).trim()
-          let evt: { type: string; message?: string; filename?: string; count?: number; file?: string; signedUrl?: string } | null = null
-          try { evt = JSON.parse(jsonStr) } catch { continue }
-          if (!evt) continue
-
-          if (evt.type === 'progress' && evt.message) {
-            setProgress(evt.message)
-          } else if (evt.type === 'error') {
-            throw new Error(evt.message ?? 'Erro ao gerar checklist.')
-          } else if (evt.type === 'done') {
-            let blob: Blob
-            if (evt.signedUrl) {
-              // Preferencial: baixa o arquivo via URL assinada (evento SSE menor)
-              setProgress('Baixando planilha...')
-              const fileRes = await fetch(evt.signedUrl)
-              if (!fileRes.ok) throw new Error('Falha ao baixar o arquivo gerado.')
-              blob = await fileRes.blob()
-            } else if (evt.file) {
-              // Fallback: decodifica base64 embutido no evento
-              const binary = Uint8Array.from(atob(evt.file), c => c.charCodeAt(0))
-              blob = new Blob([binary], {
-                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              })
-            } else {
-              throw new Error('Resposta inválida: arquivo não encontrado.')
-            }
-            setResult({ filename: evt.filename ?? 'checklist.xlsx', blob, count: evt.count ?? 0 })
-            setStage('done')
-            return
-          }
-          // evt.type === 'ping' — ignorado
-        }
-      }
-
-      // Stream encerrou sem evento 'done'
-      throw new Error('A geração foi interrompida. Tente novamente.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro desconhecido.')
       setStage('error')

@@ -167,47 +167,108 @@ export async function POST(req: NextRequest) {
   const T = () => new Date().toISOString()
 
   // ── 1. Leitura e validação do body ────────────────────────────────────────
-  const formData = await req.formData()
-  const criteriosRaw = formData.getAll('criterios') as string[]
-  const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
-  const criterios    = criteriosRaw.length > 0 ? criteriosRaw.map(s => s.trim()).filter(Boolean)
-                     : criterioLeg ? [criterioLeg] : []
-  const cliente  = (formData.get('cliente') as string | null)?.trim()
-  const files    = formData.getAll('files') as File[]
-
-  if (!criterios.length) return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
-  if (!cliente)          return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
-  if (!files.length)     return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
+  // Dois modos suportados:
+  //   • multipart/form-data  — arquivos enviados diretamente (≤ 3.5 MB total, limite Vercel)
+  //   • application/json     — paths de arquivos já carregados no Supabase Storage
+  //                            (contorna o limite de 4.5 MB do Vercel para uploads grandes)
+  const contentType   = req.headers.get('content-type') ?? ''
+  const isJsonMode    = contentType.includes('application/json')
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const docBlocks: any[] = []
-  let totalSize = 0
+  const docBlocks:     any[]    = []
+  let   criterios:     string[] = []
+  let   cliente:       string   = ''
+  let   uploadedPaths: string[] = []   // paths em checklist-uploads para limpeza pós-processamento
 
-  for (const file of files) {
-    if (file.size > 20 * 1024 * 1024)
-      return Response.json({ error: `Arquivo "${file.name}" ultrapassa 20 MB.` }, { status: 413 })
-    totalSize += file.size
-    if (totalSize > 60 * 1024 * 1024)
-      return Response.json({ error: 'Tamanho total dos arquivos ultrapassa 60 MB.' }, { status: 413 })
+  if (isJsonMode) {
+    // ── Modo paths: arquivos já estão no Supabase Storage ──────────────────
+    const body    = await req.json()
+    criterios     = Array.isArray(body.criterios) ? body.criterios.map((s: string) => String(s).trim()).filter(Boolean) : []
+    cliente       = String(body.cliente ?? '').trim()
+    uploadedPaths = Array.isArray(body.filePaths) ? body.filePaths : []
 
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    if (!criterios.length)     return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
+    if (!cliente)              return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
+    if (!uploadedPaths.length) return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
 
-    if (ext === 'pdf') {
-      docBlocks.push({
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
-        title: file.name,
-      })
-    } else if (ext === 'docx' || ext === 'doc') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await mammoth.extractRawText({ buffer: buffer as any })
-      if (result.value.trim())
-        docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${result.value.trim()}` })
-    } else if (['txt', 'md', 'csv'].includes(ext)) {
-      const text = buffer.toString('utf-8')
-      if (text.trim())
-        docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${text.trim()}` })
+    console.log(`[SSE][${T()}] JSON mode — baixando ${uploadedPaths.length} arquivo(s) do storage`)
+    const admin = createAdminClient()
+
+    for (const filePath of uploadedPaths) {
+      const filename = filePath.split('/').pop() ?? 'arquivo'
+      const ext      = filename.split('.').pop()?.toLowerCase() ?? ''
+
+      const { data: blob, error } = await admin.storage
+        .from('checklist-uploads')
+        .download(filePath)
+
+      if (error || !blob) {
+        console.warn(`[SSE][${T()}] download falhou para ${filePath}:`, error?.message)
+        continue
+      }
+
+      const buffer = Buffer.from(await blob.arrayBuffer())
+      console.log(`[SSE][${T()}] downloaded: ${filename} (${buffer.byteLength} bytes)`)
+
+      if (ext === 'pdf') {
+        docBlocks.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+          title: filename,
+        })
+      } else if (ext === 'docx' || ext === 'doc') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await mammoth.extractRawText({ buffer: buffer as any })
+        if (result.value.trim())
+          docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${result.value.trim()}` })
+      } else if (['txt', 'md', 'csv'].includes(ext)) {
+        const text = buffer.toString('utf-8')
+        if (text.trim())
+          docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${text.trim()}` })
+      }
+    }
+
+  } else {
+    // ── Modo form-data: arquivos recebidos diretamente ─────────────────────
+    const formData     = await req.formData()
+    const criteriosRaw = formData.getAll('criterios') as string[]
+    const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
+    criterios          = criteriosRaw.length > 0 ? criteriosRaw.map(s => s.trim()).filter(Boolean)
+                       : criterioLeg ? [criterioLeg] : []
+    cliente            = (formData.get('cliente') as string | null)?.trim() ?? ''
+    const files        = formData.getAll('files') as File[]
+
+    if (!criterios.length) return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
+    if (!cliente)           return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
+    if (!files.length)      return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
+
+    let totalSize = 0
+    for (const file of files) {
+      if (file.size > 20 * 1024 * 1024)
+        return Response.json({ error: `Arquivo "${file.name}" ultrapassa 20 MB.` }, { status: 413 })
+      totalSize += file.size
+      if (totalSize > 60 * 1024 * 1024)
+        return Response.json({ error: 'Tamanho total dos arquivos ultrapassa 60 MB.' }, { status: 413 })
+
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const ext    = file.name.split('.').pop()?.toLowerCase() ?? ''
+
+      if (ext === 'pdf') {
+        docBlocks.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+          title: file.name,
+        })
+      } else if (ext === 'docx' || ext === 'doc') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await mammoth.extractRawText({ buffer: buffer as any })
+        if (result.value.trim())
+          docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${result.value.trim()}` })
+      } else if (['txt', 'md', 'csv'].includes(ext)) {
+        const text = buffer.toString('utf-8')
+        if (text.trim())
+          docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${text.trim()}` })
+      }
     }
   }
 
@@ -222,7 +283,7 @@ export async function POST(req: NextRequest) {
     currentUserId = user?.id ?? null
   } catch { /* sem auth — histórico não será salvo */ }
 
-  console.log(`[SSE][${T()}] request ok — criterios:${criterios.join(',')} cliente:${cliente} files:${files.length} userId:${currentUserId}`)
+  console.log(`[SSE][${T()}] request ok — modo:${isJsonMode ? 'json' : 'form'} criterios:${criterios.join(',')} cliente:${cliente} docBlocks:${docBlocks.length} userId:${currentUserId}`)
 
   // ── 3. TransformStream SSE ────────────────────────────────────────────────
   // TransformStream tem melhor suporte de streaming incremental no Vercel do que
@@ -500,6 +561,19 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
       await writeQueue
     } finally {
       clearInterval(pingId)
+      // Limpeza de arquivos temporários no Supabase Storage (modo JSON)
+      if (uploadedPaths.length) {
+        try {
+          const admin = createAdminClient()
+          const { error: rmErr } = await admin.storage
+            .from('checklist-uploads')
+            .remove(uploadedPaths)
+          if (rmErr) console.warn(`[SSE][${T()}] cleanup storage error:`, rmErr.message)
+          else       console.log(`[SSE][${T()}] cleaned up ${uploadedPaths.length} temp file(s)`)
+        } catch (cleanErr) {
+          console.warn(`[SSE][${T()}] cleanup exception:`, cleanErr)
+        }
+      }
       try { await writer.close() } catch (e) {
         console.warn(`[SSE][${T()}] writer.close error:`, e)
       }
