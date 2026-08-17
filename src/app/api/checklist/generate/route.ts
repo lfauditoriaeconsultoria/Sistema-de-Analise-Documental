@@ -164,94 +164,101 @@ async function fillTemplate(
 
 /* ── Handler principal ── */
 export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData()
-    // Aceita tanto `criterios` (múltiplos, novo frontend) quanto `criterio` (singular, retrocompat.)
-    const criteriosRaw = formData.getAll('criterios') as string[]
-    const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
-    const criterios    = criteriosRaw.length > 0 ? criteriosRaw.map(s => s.trim()).filter(Boolean)
-                       : criterioLeg ? [criterioLeg] : []
-    const cliente  = (formData.get('cliente') as string | null)?.trim()
-    const files    = formData.getAll('files') as File[]
+  // ── Validação e leitura do body ANTES de abrir o stream ──────────────────
+  // (o body só pode ser lido uma vez; deve acontecer aqui, fora do ReadableStream)
+  const formData = await req.formData()
+  const criteriosRaw = formData.getAll('criterios') as string[]
+  const criterioLeg  = (formData.get('criterio') as string | null)?.trim()
+  const criterios    = criteriosRaw.length > 0 ? criteriosRaw.map(s => s.trim()).filter(Boolean)
+                     : criterioLeg ? [criterioLeg] : []
+  const cliente  = (formData.get('cliente') as string | null)?.trim()
+  const files    = formData.getAll('files') as File[]
 
-    if (!criterios.length) return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
-    if (!cliente)  return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
-    if (!files.length) return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
+  if (!criterios.length) return Response.json({ error: 'Selecione ao menos um critério OEA.' }, { status: 400 })
+  if (!cliente)  return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
+  if (!files.length) return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
 
-    // ── Processa os arquivos enviados pelo usuário ────────────────────────────
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const docBlocks: any[] = []
-    let totalSize = 0
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const docBlocks: any[] = []
+  let totalSize = 0
 
-    for (const file of files) {
-      if (file.size > 20 * 1024 * 1024) {
-        return Response.json({ error: `Arquivo "${file.name}" ultrapassa 20 MB.` }, { status: 413 })
+  for (const file of files) {
+    if (file.size > 20 * 1024 * 1024) {
+      return Response.json({ error: `Arquivo "${file.name}" ultrapassa 20 MB.` }, { status: 413 })
+    }
+    totalSize += file.size
+    if (totalSize > 60 * 1024 * 1024) {
+      return Response.json({ error: 'Tamanho total dos arquivos ultrapassa 60 MB.' }, { status: 413 })
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+
+    if (ext === 'pdf') {
+      docBlocks.push({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+        title: file.name,
+      })
+    } else if (ext === 'docx' || ext === 'doc') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await mammoth.extractRawText({ buffer: buffer as any })
+      if (result.value.trim()) {
+        docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${result.value.trim()}` })
       }
-      totalSize += file.size
-      if (totalSize > 60 * 1024 * 1024) {
-        return Response.json({ error: 'Tamanho total dos arquivos ultrapassa 60 MB.' }, { status: 413 })
+    } else if (['txt', 'md', 'csv'].includes(ext)) {
+      const text = buffer.toString('utf-8')
+      if (text.trim()) {
+        docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${text.trim()}` })
+      }
+    }
+  }
+
+  if (!docBlocks.length) {
+    return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
+  }
+
+  // ── Resposta SSE — evita 504 mantendo a conexão viva durante o processamento ──
+  // O Vercel/proxy fecha a conexão se nenhum byte é enviado por ~30 s.
+  // Com SSE a primeira byte é enviada imediatamente e pings periódicos
+  // mantêm o keep-alive enquanto o Claude processa.
+  const enc = new TextEncoder()
+  const sseStream = new ReadableStream({
+    async start(ctrl) {
+      const send = (data: object) => {
+        try { ctrl.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`)) } catch { /* já fechado */ }
       }
 
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+      // Ping a cada 20 s para manter conexão viva
+      const pingId = setInterval(() => send({ type: 'ping' }), 20_000)
 
-      if (ext === 'pdf') {
-        docBlocks.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
-          title: file.name,
-        })
-      } else if (ext === 'docx' || ext === 'doc') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await mammoth.extractRawText({ buffer: buffer as any })
-        if (result.value.trim()) {
-          docBlocks.push({
-            type: 'text',
-            text: `=== Documento: ${file.name} ===\n${result.value.trim()}`,
-          })
+      try {
+        // ── Critérios OEA ─────────────────────────────────────────────────────
+        send({ type: 'progress', message: 'Buscando critérios OEA...' })
+        let criteriaContexts: string[] = []
+        try {
+          const admin = createAdminClient()
+          const { data: criteriaRows, error } = await admin
+            .from('oea_criteria')
+            .select('number, name, description, items:oea_items(item_number, description, qualificador)')
+            .in('name', criterios)
+            .order('number', { ascending: true })
+
+          if (error) {
+            console.warn('[checklist/generate] erro ao buscar critérios:', error.message)
+          } else if (criteriaRows?.length) {
+            criteriaContexts = criteriaRows.map(row => buildCriteriaContext(row as OeaCriteriaRow))
+            console.log('[checklist/generate] critérios:', criteriaRows.map(r => `${r.number}. ${r.name}`).join(', '))
+          }
+        } catch (dbErr) {
+          console.warn('[checklist/generate] falha ao consultar banco:', dbErr)
         }
-      } else if (['txt', 'md', 'csv'].includes(ext)) {
-        const text = buffer.toString('utf-8')
-        if (text.trim()) {
-          docBlocks.push({
-            type: 'text',
-            text: `=== Documento: ${file.name} ===\n${text.trim()}`,
-          })
-        }
-      }
-    }
 
-    if (!docBlocks.length) {
-      return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
-    }
+        const criteriosLabel = criterios.join(', ')
+        const promptMestre   = loadPromptMestre()
 
-    // ── Busca critérios OEA no banco ─────────────────────────────────────────
-    let criteriaContexts: string[] = []
-    try {
-      const admin = createAdminClient()
-      const { data: criteriaRows, error } = await admin
-        .from('oea_criteria')
-        .select('number, name, description, items:oea_items(item_number, description, qualificador)')
-        .in('name', criterios)
-        .order('number', { ascending: true })
-
-      if (error) {
-        console.warn('[checklist/generate] erro ao buscar critérios no banco:', error.message)
-      } else if (criteriaRows?.length) {
-        criteriaContexts = criteriaRows.map(row => buildCriteriaContext(row as OeaCriteriaRow))
-        console.log('[checklist/generate] critérios carregados:', criteriaRows.map(r => `${r.number}. ${r.name}`).join(', '))
-      }
-    } catch (dbErr) {
-      console.warn('[checklist/generate] falha ao consultar banco — prosseguindo sem contexto:', dbErr)
-    }
-
-    const criteriosLabel = criterios.join(', ')
-
-    // ── Prompt mestre ─────────────────────────────────────────────────────────
-    const promptMestre = loadPromptMestre()
-
-    const normativaSection = criteriaContexts.length > 0
-      ? `━━━ REFERÊNCIA NORMATIVA ━━━
+        const normativaSection = criteriaContexts.length > 0
+          ? `━━━ REFERÊNCIA NORMATIVA ━━━
 
 Os requisitos oficiais dos critérios selecionados foram extraídos do banco de dados do sistema.
 Use estas listas como fonte DEFINITIVA para as colunas E (requisito) e F (qualificador).
@@ -266,13 +273,13 @@ Regras:
 - NUNCA repita o mesmo número de requisito para todos os itens.
 
 ${criteriaContexts.join('\n\n━━━\n\n')}`
-      : `━━━ REFERÊNCIA NORMATIVA ━━━
+          : `━━━ REFERÊNCIA NORMATIVA ━━━
 
 Use seu conhecimento do Programa OEA (Portaria Coana nº 154/2024) para identificar os requisitos
 corretos de cada processo auditado. Os números VARIAM por item — nunca repita o mesmo requisito.
 O qualificador ("Obrigatório" ou "Recomendável") segue a classificação oficial do programa.`
 
-    const systemPrompt = `${promptMestre}
+        const systemPrompt = `${promptMestre}
 
 ${normativaSection}
 
@@ -310,146 +317,123 @@ REGRAS CRÍTICAS:
 - Extraia TODOS os trechos auditáveis relevantes para os critérios: ${criteriosLabel}
 - Não toque nas colunas Q em diante (etapa de conformidade)`
 
-    const userMessage = `Critério(s) OEA selecionado(s): ${criteriosLabel}
+        const userMessage = `Critério(s) OEA selecionado(s): ${criteriosLabel}
 Cliente: ${cliente}
 
 Analise os documentos abaixo e preencha o checklist de auditoria conforme as instruções.
 Para cada item, identifique o critério correto (coluna D), o requisito (coluna E) e o qualificador (coluna F).
 Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
 
-    // ── Monta conteúdo da mensagem ────────────────────────────────────────────
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const userContent: any[] = []
-    userContent.push({ type: 'text', text: userMessage })
-    userContent.push(...docBlocks)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const userContent: any[] = [{ type: 'text', text: userMessage }, ...docBlocks]
 
-    // ── Chamada à API do Claude ───────────────────────────────────────────────
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+        // ── Chamada ao Claude ─────────────────────────────────────────────────
+        send({ type: 'progress', message: 'Analisando documentos com IA...' })
+        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-    // Streaming obrigatório para max_tokens alto (SDK exige para operações > 10 min)
-    const message = await client.messages.stream({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 64000,
-      // Cache do prompt mestre (estável entre requisições)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
-      messages: [{
-        role:    'user',
-        content: userContent,
-      }],
-    }).finalMessage()
+        const message = await client.messages.stream({
+          model:      'claude-sonnet-4-6',
+          max_tokens: 64000,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
+          messages: [{ role: 'user', content: userContent }],
+        }).finalMessage()
 
-    console.log(
-      '[checklist/generate] stop_reason:', message.stop_reason,
-      '| cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
-      '| cache_read:', message.usage?.cache_read_input_tokens ?? 0,
-      '| input:', message.usage?.input_tokens,
-      '| output:', message.usage?.output_tokens,
-    )
+        console.log(
+          '[checklist/generate] stop_reason:', message.stop_reason,
+          '| cache_write:', message.usage?.cache_creation_input_tokens ?? 0,
+          '| cache_read:', message.usage?.cache_read_input_tokens ?? 0,
+          '| input:', message.usage?.input_tokens,
+          '| output:', message.usage?.output_tokens,
+        )
 
-    if (message.stop_reason === 'max_tokens') {
-      console.error('[checklist/generate] resposta cortada por max_tokens — JSON truncado, retornando erro claro')
-      return Response.json({
-        error: 'O checklist gerado é muito extenso para ser processado de uma vez. Reduza a quantidade de documentos enviados ou divida em lotes menores e tente novamente.',
-      }, { status: 422 })
-    }
-
-    const rawText = message.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as { type: 'text'; text: string }).text)
-      .join('')
-
-    // ── Parse do JSON retornado pela IA ───────────────────────────────────────
-    let parsed: { items: ChecklistItem[] } | undefined
-    const tryParse = (s: string) => { parsed = JSON.parse(s); return true }
-
-    const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
-    const jsonStr    = fenceMatch
-      ? fenceMatch[1].trim()
-      : (() => {
-          const a = rawText.indexOf('{')
-          const b = rawText.lastIndexOf('}')
-          return a !== -1 && b > a ? rawText.slice(a, b + 1) : rawText.trim()
-        })()
-
-    let parseOk = false
-    for (const attempt of [
-      () => tryParse(jsonStr),
-      () => tryParse(jsonStr.replace(/,\s*([}\]])/g, '$1')),
-    ]) {
-      try { parseOk = attempt(); break } catch { /* continue */ }
-    }
-
-    if (!parseOk || !parsed?.items?.length) {
-      console.error('[checklist/generate] parse falhou. Raw:', rawText.slice(0, 500))
-      return Response.json({ error: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' }, { status: 500 })
-    }
-
-    const items = parsed.items.map((it, i) => ({ ...it, id: i + 1 }))
-
-    // ── Preenche o template Excel ──────────────────────────────────────────────
-    const templateBuffer = loadTemplate()
-    const xlsxBytes      = await fillTemplate(templateBuffer, items)
-    const filename       = buildFilename(cliente)
-
-    // Encode UTF-8 para evitar corrupção de acentos nos headers HTTP (Latin-1 por padrão).
-    // Content-Disposition usa RFC 5987: filename* com percent-encoding é o padrão correto.
-    // X-Filename também é encodado; o frontend decodifica com decodeURIComponent().
-    const filenameXlsx  = `${filename}.xlsx`
-    const filenameAscii = filenameXlsx.replace(/[^\x20-\x7E]/g, '_')    // fallback ASCII
-    const filenameEnc   = encodeURIComponent(filenameXlsx)              // RFC 5987 / custom header
-
-    // ── Salva no histórico (best-effort — falha não interrompe o download) ────
-    try {
-      const supabase = await createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-
-      if (user) {
-        const admin       = createAdminClient()
-        const checklistId = crypto.randomUUID()
-        const filePath    = `${user.id}/${checklistId}.xlsx`
-
-        const { error: uploadError } = await admin.storage
-          .from('checklists')
-          .upload(filePath, Buffer.from(xlsxBytes), {
-            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          })
-
-        if (uploadError) {
-          console.warn('[checklist/generate] upload storage falhou:', uploadError.message)
-        } else {
-          await admin.from('checklist_history').insert({
-            id:          checklistId,
-            user_id:     user.id,
-            cliente,
-            criterio:    criteriosLabel,
-            filename:    filenameXlsx,
-            items_count: items.length,
-            file_path:   filePath,
-          })
-          console.log('[checklist/generate] salvo no histórico:', checklistId)
+        if (message.stop_reason === 'max_tokens') {
+          console.error('[checklist/generate] resposta cortada por max_tokens')
+          send({ type: 'error', message: 'O checklist gerado é muito extenso. Reduza a quantidade de documentos ou divida em lotes menores e tente novamente.' })
+          clearInterval(pingId); ctrl.close(); return
         }
-      }
-    } catch (histErr) {
-      console.warn('[checklist/generate] falha ao salvar histórico:', histErr)
-    }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new Response(xlsxBytes as any, {
-      headers: {
-        'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        // filename= (fallback ASCII para clientes antigos) + filename*= (RFC 5987, suporte moderno)
-        'Content-Disposition': `attachment; filename="${filenameAscii}"; filename*=UTF-8''${filenameEnc}`,
-        'Content-Length':      String(xlsxBytes.byteLength),
-        'X-Filename':          filenameEnc,
-        'X-Items-Count':       String(items.length),
-      },
-    })
-  } catch (err) {
-    console.error('[checklist/generate]', err)
-    return Response.json(
-      { error: err instanceof Error ? err.message : 'Erro interno.' },
-      { status: 500 }
-    )
-  }
+        const rawText = message.content
+          .filter(b => b.type === 'text')
+          .map(b => (b as { type: 'text'; text: string }).text)
+          .join('')
+
+        // ── Parse JSON ────────────────────────────────────────────────────────
+        send({ type: 'progress', message: 'Gerando planilha...' })
+        let parsed: { items: ChecklistItem[] } | undefined
+        const tryParse = (s: string) => { parsed = JSON.parse(s); return true }
+
+        const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+        const jsonStr    = fenceMatch
+          ? fenceMatch[1].trim()
+          : (() => { const a = rawText.indexOf('{'); const b = rawText.lastIndexOf('}'); return a !== -1 && b > a ? rawText.slice(a, b + 1) : rawText.trim() })()
+
+        let parseOk = false
+        for (const attempt of [
+          () => tryParse(jsonStr),
+          () => tryParse(jsonStr.replace(/,\s*([}\]])/g, '$1')),
+        ]) {
+          try { parseOk = attempt(); break } catch { /* continue */ }
+        }
+
+        if (!parseOk || !parsed?.items?.length) {
+          console.error('[checklist/generate] parse falhou. Raw:', rawText.slice(0, 500))
+          send({ type: 'error', message: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' })
+          clearInterval(pingId); ctrl.close(); return
+        }
+
+        const items       = parsed.items.map((it, i) => ({ ...it, id: i + 1 }))
+        const templateBuf = loadTemplate()
+        const xlsxBytes   = await fillTemplate(templateBuf, items)
+        const filename    = buildFilename(cliente)
+        const filenameXlsx = `${filename}.xlsx`
+
+        // ── Histórico (best-effort) ───────────────────────────────────────────
+        try {
+          const supabase = await createClient()
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            const admin       = createAdminClient()
+            const checklistId = crypto.randomUUID()
+            const filePath    = `${user.id}/${checklistId}.xlsx`
+            const { error: uploadErr } = await admin.storage
+              .from('checklists')
+              .upload(filePath, Buffer.from(xlsxBytes), {
+                contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              })
+            if (!uploadErr) {
+              await admin.from('checklist_history').insert({
+                id: checklistId, user_id: user.id, cliente,
+                criterio: criteriosLabel, filename: filenameXlsx,
+                items_count: items.length, file_path: filePath,
+              })
+              console.log('[checklist/generate] salvo no histórico:', checklistId)
+            }
+          }
+        } catch (histErr) {
+          console.warn('[checklist/generate] falha ao salvar histórico:', histErr)
+        }
+
+        // ── Envia arquivo como base64 no evento final ─────────────────────────
+        const base64 = Buffer.from(xlsxBytes).toString('base64')
+        send({ type: 'done', filename: filenameXlsx, count: items.length, file: base64 })
+
+      } catch (err) {
+        console.error('[checklist/generate]', err)
+        send({ type: 'error', message: err instanceof Error ? err.message : 'Erro interno.' })
+      } finally {
+        clearInterval(pingId)
+        ctrl.close()
+      }
+    },
+  })
+
+  return new Response(sseStream, {
+    headers: {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+      'X-Accel-Buffering': 'no',   // desativa buffering no nginx/Vercel
+    },
+  })
 }

@@ -200,6 +200,7 @@ export function ChecklistGenerate() {
   const [files,     setFiles]     = useState<UploadedFile[]>([])
   const [stage,     setStage]     = useState<Stage>('idle')
   const [error,     setError]     = useState('')
+  const [progress,  setProgress]  = useState('')
   const [result,    setResult]    = useState<{ filename: string; blob: Blob; count: number } | null>(null)
   const [dragging,  setDragging]  = useState(false)
   const [loadingCriteria, setLoadingCriteria] = useState(true)
@@ -260,9 +261,10 @@ export function ChecklistGenerate() {
     addFiles(e.dataTransfer.files)
   }, [addFiles])
 
-  /* ── Geração ── */
+  /* ── Geração via SSE ── */
   async function handleGenerate() {
     setError('')
+    setProgress('')
     if (criterios.length === 0) return setError('Selecione ao menos um critério OEA.')
     if (!cliente.trim())        return setError('Informe o nome do cliente.')
     if (!files.length)          return setError('Adicione ao menos um documento.')
@@ -277,25 +279,61 @@ export function ChecklistGenerate() {
 
     try {
       const fd = new FormData()
-      // Envia cada critério como campo separado com a mesma chave
       criterios.forEach(c => fd.append('criterios', c))
       fd.append('cliente', cliente.trim())
       files.forEach(f => fd.append('files', f.file))
 
       const res = await fetch('/api/checklist/generate', { method: 'POST', body: fd })
 
+      // Erros de validação (400/413) chegam como JSON normal
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         throw new Error(j.error ?? `Erro ${res.status}`)
       }
 
-      const blob        = await res.blob()
-      const rawFilename = res.headers.get('X-Filename') ?? 'checklist.xlsx'
-      const filename    = decodeURIComponent(rawFilename)
-      const count       = Number(res.headers.get('X-Items-Count') ?? 0)
+      // Leitura do stream SSE
+      const reader  = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let   buf     = ''
 
-      setResult({ filename, blob, count })
-      setStage('done')
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+
+        // Processa eventos completos (separados por \n\n)
+        const parts = buf.split('\n\n')
+        buf = parts.pop() ?? ''   // último chunk possivelmente incompleto
+
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data:')) continue
+          const jsonStr = line.slice('data:'.length).trim()
+          let evt: { type: string; message?: string; filename?: string; count?: number; file?: string } | null = null
+          try { evt = JSON.parse(jsonStr) } catch { continue }
+          if (!evt) continue
+
+          if (evt.type === 'progress' && evt.message) {
+            setProgress(evt.message)
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message ?? 'Erro ao gerar checklist.')
+          } else if (evt.type === 'done' && evt.file) {
+            // Decodifica base64 → Uint8Array → Blob
+            const binary = Uint8Array.from(atob(evt.file), c => c.charCodeAt(0))
+            const blob   = new Blob([binary], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            })
+            setResult({ filename: evt.filename ?? 'checklist.xlsx', blob, count: evt.count ?? 0 })
+            setStage('done')
+            return
+          }
+          // evt.type === 'ping' — ignorado
+        }
+      }
+
+      // Stream encerrou sem evento 'done'
+      throw new Error('A geração foi interrompida. Tente novamente.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro desconhecido.')
       setStage('error')
@@ -503,10 +541,15 @@ export function ChecklistGenerate() {
           </button>
 
           {stage === 'loading' && (
-            <p className="text-center text-xs text-gray-400 -mt-2">
-              A IA está lendo os procedimentos e cruzando com os requisitos OEA.
-              Isso pode levar de 1 a 3 minutos dependendo da quantidade de documentos.
-            </p>
+            <div className="-mt-2 text-center space-y-1">
+              {progress && (
+                <p className="text-xs font-medium text-blue-600 dark:text-blue-400">{progress}</p>
+              )}
+              <p className="text-xs text-gray-400">
+                A IA está lendo os procedimentos e cruzando com os requisitos OEA.
+                Isso pode levar de 1 a 3 minutos dependendo da quantidade de documentos.
+              </p>
+            </div>
           )}
         </div>
       )}
