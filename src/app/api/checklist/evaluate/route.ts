@@ -417,13 +417,14 @@ ${checklistContext}`
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-    const message = await client.messages.create({
+    // Streaming obrigatório para max_tokens alto (SDK exige para operações > 10 min)
+    const message = await client.messages.stream({
       model:      'claude-sonnet-4-6',
-      max_tokens: 16000,
+      max_tokens: 32000,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
       messages: [{ role: 'user', content: userContent }],
-    })
+    }).finalMessage()
 
     console.log(
       '[checklist/evaluate] cache_write:', message.usage?.cache_creation_input_tokens ?? 0,

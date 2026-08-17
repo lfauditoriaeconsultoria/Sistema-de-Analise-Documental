@@ -326,7 +326,8 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
     // ── Chamada à API do Claude ───────────────────────────────────────────────
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-    const message = await client.messages.create({
+    // Streaming obrigatório para max_tokens alto (SDK exige para operações > 10 min)
+    const message = await client.messages.stream({
       model:      'claude-sonnet-4-6',
       max_tokens: 64000,
       // Cache do prompt mestre (estável entre requisições)
@@ -336,7 +337,7 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
         role:    'user',
         content: userContent,
       }],
-    })
+    }).finalMessage()
 
     console.log(
       '[checklist/generate] stop_reason:', message.stop_reason,
