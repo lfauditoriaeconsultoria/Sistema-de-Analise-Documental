@@ -28,6 +28,38 @@ function loadTemplate(): Buffer {
   return fs.readFileSync(p)
 }
 
+/* ── Extração de texto de PDF ────────────────────────────────────────────────
+ * Usar texto extraído é MUITO mais eficiente em tokens do que enviar o PDF como
+ * documento de visão (base64). Para 10 MB de PDF: ~14 MB base64 → centenas de
+ * milhares de tokens → Claude leva minutos. Com texto: ~300 KB → dezenas de
+ * milhares de tokens → Claude processa em ~60 s, dentro do limite de 300 s.
+ * Fallback para visão apenas se o PDF não tiver texto selecionável (escaneado).
+ * ─────────────────────────────────────────────────────────────────────────── */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as typeof import('pdf-parse')
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function pdfToDocBlock(buffer: Buffer, filename: string): Promise<any> {
+  try {
+    const data = await pdfParse(buffer)
+    const text = (data.text ?? '').trim()
+    if (text.length >= 100) {
+      console.log(`[pdf] text extracted: ${filename} — ${text.length} chars, ${data.numpages} páginas`)
+      return { type: 'text', text: `=== Documento: ${filename} ===\n${text}` }
+    }
+    console.log(`[pdf] texto muito curto (${text.length} chars), usando visão: ${filename}`)
+  } catch (err) {
+    console.warn(`[pdf] parse error para ${filename}:`, err)
+  }
+  // Fallback: vision — para PDFs escaneados ou sem texto selecionável
+  console.log(`[pdf] vision fallback para: ${filename}`)
+  return {
+    type: 'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+    title: filename,
+  }
+}
+
 /* ── Tipos locais para dados de critérios do banco ── */
 interface OeaItemRow {
   item_number: string
@@ -211,11 +243,7 @@ export async function POST(req: NextRequest) {
       console.log(`[SSE][${T()}] downloaded: ${filename} (${buffer.byteLength} bytes)`)
 
       if (ext === 'pdf') {
-        docBlocks.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
-          title: filename,
-        })
+        docBlocks.push(await pdfToDocBlock(buffer, filename))
       } else if (ext === 'docx' || ext === 'doc') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await mammoth.extractRawText({ buffer: buffer as any })
@@ -254,11 +282,7 @@ export async function POST(req: NextRequest) {
       const ext    = file.name.split('.').pop()?.toLowerCase() ?? ''
 
       if (ext === 'pdf') {
-        docBlocks.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
-          title: file.name,
-        })
+        docBlocks.push(await pdfToDocBlock(buffer, file.name))
       } else if (ext === 'docx' || ext === 'doc') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await mammoth.extractRawText({ buffer: buffer as any })
