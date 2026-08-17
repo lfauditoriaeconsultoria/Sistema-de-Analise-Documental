@@ -21,9 +21,8 @@ function getOptions(isAdmin: boolean): AuditOption[] {
       description:
         'Crie uma planilha de auditoria personalizada com base nos procedimentos e documentos de referência de cada cliente.',
       href: '/checklist/generate',
-      enabled: isAdmin,
-      badge: isAdmin ? 'Beta' : undefined,
-      adminOnly: true,
+      enabled: true,
+      badge: 'Beta',
     },
     {
       icon: <FileCheck size={32} />,
