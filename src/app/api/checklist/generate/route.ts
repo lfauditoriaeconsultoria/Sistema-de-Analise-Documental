@@ -39,31 +39,29 @@ function loadTemplate(): Buffer {
 const pdfParse = require('pdf-parse') as typeof import('pdf-parse')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function pdfToDocBlock(buffer: Buffer, filename: string): Promise<any> {
+async function pdfToDocBlock(buffer: Buffer, filename: string, maxChars = 30_000): Promise<any | null> {
   try {
     const data = await pdfParse(buffer)
     const text = (data.text ?? '').trim()
     if (text.length >= 100) {
-      // Limita texto por documento: 120 k chars ≈ 30 k tokens — suficiente para
-      // qualquer manual de procedimentos; evita timeout de 300 s do Vercel.
-      const MAX_CHARS = 120_000
-      const truncated = text.length > MAX_CHARS
-        ? text.slice(0, MAX_CHARS) + '\n[... documento truncado para otimizar processamento ...]'
+      // Limita texto por documento: 30 k chars ≈ 7.5 k tokens — cobre as seções
+      // principais de qualquer IT/manual; evita timeout de 300 s do Vercel quando
+      // há múltiplos documentos grandes (5 × 30 k = 150 k chars total → seguro).
+      const truncated = text.length > maxChars
+        ? text.slice(0, maxChars) + '\n[... documento truncado para otimizar processamento ...]'
         : text
       console.log(`[pdf] extracted: ${filename} — ${text.length} chars → ${truncated.length} enviados, ${data.numpages} páginas`)
       return { type: 'text', text: `=== Documento: ${filename} ===\n${truncated}` }
     }
-    console.log(`[pdf] texto muito curto (${text.length} chars), usando visão: ${filename}`)
+    console.log(`[pdf] texto muito curto (${text.length} chars): ${filename}`)
   } catch (err) {
     console.warn(`[pdf] parse error para ${filename}:`, err)
   }
-  // Fallback: vision — para PDFs escaneados ou sem texto selecionável
-  console.log(`[pdf] vision fallback para: ${filename}`)
-  return {
-    type: 'document',
-    source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
-    title: filename,
-  }
+  // PDF sem texto selecionável (escaneado/imagem) — retorna null para ser ignorado.
+  // Não usamos vision fallback pois um PDF de 5 MB em base64 = ~6.7 MB de texto
+  // que levaria centenas de segundos de processamento, causando timeout de 300 s.
+  console.warn(`[pdf] sem texto extraível — arquivo ignorado: ${filename}`)
+  return null
 }
 
 /* ── Tipos locais para dados de critérios do banco ── */
@@ -259,16 +257,18 @@ export async function POST(req: NextRequest) {
       const ext    = file.name.split('.').pop()?.toLowerCase() ?? ''
 
       if (ext === 'pdf') {
-        docBlocks.push(await pdfToDocBlock(buffer, file.name))
+        const block = await pdfToDocBlock(buffer, file.name)
+        if (block) docBlocks.push(block)
       } else if (ext === 'docx' || ext === 'doc') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await mammoth.extractRawText({ buffer: buffer as any })
-        if (result.value.trim())
-          docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${result.value.trim()}` })
+        const raw = result.value.trim().slice(0, 30_000)
+        if (raw)
+          docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${raw}` })
       } else if (['txt', 'md', 'csv'].includes(ext)) {
-        const text = buffer.toString('utf-8')
-        if (text.trim())
-          docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${text.trim()}` })
+        const text = buffer.toString('utf-8').trim().slice(0, 30_000)
+        if (text)
+          docBlocks.push({ type: 'text', text: `=== Documento: ${file.name} ===\n${text}` })
       }
     }
   }
@@ -335,41 +335,51 @@ export async function POST(req: NextRequest) {
       // evitando timeout de primeiro byte enquanto o Supabase é acessado.
       if (isJsonMode && uploadedPaths.length) {
         send({ type: 'progress', message: 'Preparando documentos...' })
-        console.log(`[SSE][${T()}] downloading ${uploadedPaths.length} file(s) from storage`)
+        console.log(`[SSE][${T()}] downloading ${uploadedPaths.length} file(s) in parallel from storage`)
         const dlAdmin = createAdminClient()
 
-        for (const filePath of uploadedPaths) {
-          const filename = filePath.split('/').pop() ?? 'arquivo'
-          const ext      = filename.split('.').pop()?.toLowerCase() ?? ''
+        // Downloads e extração em paralelo: todos os arquivos são baixados/processados
+        // simultaneamente, reduzindo o tempo de ~60 s (sequencial) para ~15 s (paralelo).
+        // Ordem preservada via índice do Promise.all.
+        const blockResults = await Promise.all(
+          uploadedPaths.map(async (filePath) => {
+            const filename = filePath.split('/').pop() ?? 'arquivo'
+            const ext      = filename.split('.').pop()?.toLowerCase() ?? ''
 
-          const { data: blob, error } = await dlAdmin.storage
-            .from('checklist-uploads')
-            .download(filePath)
+            const { data: blob, error } = await dlAdmin.storage
+              .from('checklist-uploads')
+              .download(filePath)
 
-          if (error || !blob) {
-            console.warn(`[SSE][${T()}] download falhou: ${filePath} —`, error?.message)
-            continue
-          }
+            if (error || !blob) {
+              console.warn(`[SSE][${T()}] download falhou: ${filePath} —`, error?.message)
+              return null
+            }
 
-          const buffer = Buffer.from(await blob.arrayBuffer())
-          console.log(`[SSE][${T()}] downloaded: ${filename} (${buffer.byteLength} bytes)`)
+            const buffer = Buffer.from(await blob.arrayBuffer())
+            console.log(`[SSE][${T()}] downloaded: ${filename} (${buffer.byteLength} bytes)`)
 
-          if (ext === 'pdf') {
-            docBlocks.push(await pdfToDocBlock(buffer, filename))
-          } else if (ext === 'docx' || ext === 'doc') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const result = await mammoth.extractRawText({ buffer: buffer as any })
-            if (result.value.trim())
-              docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${result.value.trim()}` })
-          } else if (['txt', 'md', 'csv'].includes(ext)) {
-            const text = buffer.toString('utf-8')
-            if (text.trim())
-              docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${text.trim()}` })
-          }
+            if (ext === 'pdf') {
+              return await pdfToDocBlock(buffer, filename)
+            } else if (ext === 'docx' || ext === 'doc') {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const result = await mammoth.extractRawText({ buffer: buffer as any })
+              const raw = result.value.trim().slice(0, 30_000)
+              return raw ? { type: 'text', text: `=== Documento: ${filename} ===\n${raw}` } : null
+            } else if (['txt', 'md', 'csv'].includes(ext)) {
+              const text = buffer.toString('utf-8').trim().slice(0, 30_000)
+              return text ? { type: 'text', text: `=== Documento: ${filename} ===\n${text}` } : null
+            }
+            return null
+          })
+        )
+
+        for (const block of blockResults) {
+          if (block) docBlocks.push(block)
         }
 
         if (!docBlocks.length) {
           send({ type: 'error', message: 'Nenhum conteúdo legível nos arquivos enviados.' })
+          await writeQueue
           return
         }
         console.log(`[SSE][${T()}] docBlocks montados: ${docBlocks.length}`)
@@ -513,6 +523,7 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
       if (message.stop_reason === 'max_tokens') {
         console.error(`[SSE][${T()}] max_tokens atingido`)
         send({ type: 'error', message: 'O checklist gerado é muito extenso. Reduza a quantidade de documentos ou divida em lotes menores e tente novamente.' })
+        await writeQueue
         return
       }
 
@@ -544,6 +555,7 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
       if (!parseOk || !parsed?.items?.length) {
         console.error(`[SSE][${T()}] JSON parse failed — rawText(500):`, rawText.slice(0, 500))
         send({ type: 'error', message: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' })
+        await writeQueue
         return
       }
 

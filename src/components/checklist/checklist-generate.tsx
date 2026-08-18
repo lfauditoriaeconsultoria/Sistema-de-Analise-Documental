@@ -347,23 +347,30 @@ export function ChecklistGenerate() {
     if (!session?.user) throw new Error('Sessão expirada. Faça login novamente.')
 
     const userId = session.user.id
-    const paths: string[] = []
 
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i]
-      setProgress(`Enviando arquivo ${i + 1} de ${files.length}: ${f.file.name}`)
+    // Uploads em paralelo — todos os arquivos são enviados ao Supabase simultaneamente.
+    // Ordem preservada via Promise.all. Um contador atualiza o progresso conforme cada
+    // arquivo termina, sem bloquear os outros.
+    setProgress(`Enviando ${files.length} arquivo${files.length > 1 ? 's' : ''}...`)
+    let uploadedCount = 0
 
-      // Path segue a política RLS: userId/uuid-nome — o bucket RLS exige userId como 1ª pasta
-      const safeName    = f.file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
-      const storagePath = `${userId}/${crypto.randomUUID()}-${safeName}`
+    const paths = await Promise.all(
+      files.map(async (f) => {
+        // Path segue a política RLS: userId/uuid-nome — o bucket RLS exige userId como 1ª pasta
+        const safeName    = f.file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+        const storagePath = `${userId}/${crypto.randomUUID()}-${safeName}`
 
-      const { error } = await supabase.storage
-        .from('checklist-uploads')
-        .upload(storagePath, f.file)
+        const { error } = await supabase.storage
+          .from('checklist-uploads')
+          .upload(storagePath, f.file)
 
-      if (error) throw new Error(`Erro ao enviar "${f.file.name}": ${error.message}`)
-      paths.push(storagePath)
-    }
+        if (error) throw new Error(`Erro ao enviar "${f.file.name}": ${error.message}`)
+
+        uploadedCount++
+        setProgress(`Enviando documentos... (${uploadedCount}/${files.length} concluídos)`)
+        return storagePath
+      })
+    )
 
     setProgress('Conectando com a IA...')
 
