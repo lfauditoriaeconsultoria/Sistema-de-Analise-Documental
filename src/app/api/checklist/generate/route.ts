@@ -505,43 +505,70 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
         return []
       }
 
-      const perDocItems = await Promise.all(
+      // Promise.allSettled: continua mesmo se uma chamada falhar, coleta erros separadamente
+      const settled = await Promise.allSettled(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         docBlocks.map(async (block: any, idx: number): Promise<ChecklistItem[]> => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const content: any[] = [{ type: 'text', text: userMessage }, block]
           console.log(`[SSE][${T()}] Claude doc[${idx}] start`)
-          try {
-            const msg = await anthropicClient.messages.stream({
-              model:      'claude-sonnet-4-6',
-              max_tokens: 12_000,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
-              messages: [{ role: 'user', content }],
-            }).finalMessage()
-            console.log(
-              `[SSE][${T()}] Claude doc[${idx}] done —`,
-              `stop:${msg.stop_reason} out:${msg.usage?.output_tokens} in:${msg.usage?.input_tokens}`,
-            )
-            const raw      = msg.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-            const docItems = parseDocItems(raw)
-            console.log(`[SSE][${T()}] doc[${idx}] → ${docItems.length} itens`)
-            return docItems
-          } catch (e) {
-            console.warn(`[SSE][${T()}] Claude doc[${idx}] error:`, e)
-            return [] as ChecklistItem[]
+
+          const msg = await anthropicClient.messages.stream({
+            model:      'claude-sonnet-4-6',
+            // 16k tokens ≈ 120 itens — equilibra completude e tempo de geração.
+            // A 80 tok/s por chamada: 16k/80 = 200s por doc; em paralelo wall time = max ≈ 200s.
+            max_tokens: 16_000,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
+            messages: [{ role: 'user', content }],
+          }).finalMessage()
+
+          console.log(
+            `[SSE][${T()}] Claude doc[${idx}] done —`,
+            `stop:${msg.stop_reason} out:${msg.usage?.output_tokens} in:${msg.usage?.input_tokens}`,
+          )
+
+          // Avisa se o output foi cortado pelo limite de tokens
+          if (msg.stop_reason === 'max_tokens') {
+            console.warn(`[SSE][${T()}] doc[${idx}] atingiu max_tokens — checklist pode estar incompleto`)
           }
+
+          const raw      = msg.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+          const docItems = parseDocItems(raw)
+          console.log(`[SSE][${T()}] doc[${idx}] → ${docItems.length} itens (raw len: ${raw.length})`)
+
+          if (!docItems.length && raw.length > 100) {
+            // Output existe mas parse falhou — loga para diagnóstico
+            console.error(`[SSE][${T()}] doc[${idx}] parse falhou — raw(300):`, raw.slice(0, 300))
+          }
+
+          return docItems
         })
       )
 
-      const allItems = perDocItems.flat()
+      // Coleta resultados e erros de API
+      const allItems: ChecklistItem[] = []
+      const apiErrors: string[]       = []
+      for (const result of settled) {
+        if (result.status === 'fulfilled') {
+          allItems.push(...result.value)
+        } else {
+          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason)
+          console.error(`[SSE][${T()}] doc error:`, msg)
+          apiErrors.push(msg)
+        }
+      }
+
       if (!allItems.length) {
-        console.error(`[SSE][${T()}] nenhum item extraído de nenhum documento`)
-        send({ type: 'error', message: 'A IA não encontrou itens auditáveis nos documentos. Verifique se os documentos são relevantes para o critério OEA selecionado.' })
+        const errMsg = apiErrors.length
+          ? `Erro ao processar com a IA: ${apiErrors[0]}. Tente novamente.`
+          : 'A IA não encontrou itens auditáveis nos documentos. Verifique se os documentos e o critério OEA selecionado são compatíveis.'
+        console.error(`[SSE][${T()}] nenhum item — apiErrors:${apiErrors.length} settled:${settled.length}`)
+        send({ type: 'error', message: errMsg })
         await writeQueue
         return
       }
-      console.log(`[SSE][${T()}] total items across all docs:`, allItems.length)
+      console.log(`[SSE][${T()}] total items:`, allItems.length, `| api errors:`, apiErrors.length)
 
       send({ type: 'progress', message: 'Gerando planilha...' })
       const items        = allItems.map((it, i) => ({ ...it, id: i + 1 }))
