@@ -44,8 +44,14 @@ async function pdfToDocBlock(buffer: Buffer, filename: string): Promise<any> {
     const data = await pdfParse(buffer)
     const text = (data.text ?? '').trim()
     if (text.length >= 100) {
-      console.log(`[pdf] text extracted: ${filename} — ${text.length} chars, ${data.numpages} páginas`)
-      return { type: 'text', text: `=== Documento: ${filename} ===\n${text}` }
+      // Limita texto por documento: 120 k chars ≈ 30 k tokens — suficiente para
+      // qualquer manual de procedimentos; evita timeout de 300 s do Vercel.
+      const MAX_CHARS = 120_000
+      const truncated = text.length > MAX_CHARS
+        ? text.slice(0, MAX_CHARS) + '\n[... documento truncado para otimizar processamento ...]'
+        : text
+      console.log(`[pdf] extracted: ${filename} — ${text.length} chars → ${truncated.length} enviados, ${data.numpages} páginas`)
+      return { type: 'text', text: `=== Documento: ${filename} ===\n${truncated}` }
     }
     console.log(`[pdf] texto muito curto (${text.length} chars), usando visão: ${filename}`)
   } catch (err) {
@@ -223,38 +229,9 @@ export async function POST(req: NextRequest) {
     if (!cliente)              return Response.json({ error: 'Informe o nome do cliente.' }, { status: 400 })
     if (!uploadedPaths.length) return Response.json({ error: 'Envie ao menos um documento.' }, { status: 400 })
 
-    console.log(`[SSE][${T()}] JSON mode — baixando ${uploadedPaths.length} arquivo(s) do storage`)
-    const admin = createAdminClient()
-
-    for (const filePath of uploadedPaths) {
-      const filename = filePath.split('/').pop() ?? 'arquivo'
-      const ext      = filename.split('.').pop()?.toLowerCase() ?? ''
-
-      const { data: blob, error } = await admin.storage
-        .from('checklist-uploads')
-        .download(filePath)
-
-      if (error || !blob) {
-        console.warn(`[SSE][${T()}] download falhou para ${filePath}:`, error?.message)
-        continue
-      }
-
-      const buffer = Buffer.from(await blob.arrayBuffer())
-      console.log(`[SSE][${T()}] downloaded: ${filename} (${buffer.byteLength} bytes)`)
-
-      if (ext === 'pdf') {
-        docBlocks.push(await pdfToDocBlock(buffer, filename))
-      } else if (ext === 'docx' || ext === 'doc') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await mammoth.extractRawText({ buffer: buffer as any })
-        if (result.value.trim())
-          docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${result.value.trim()}` })
-      } else if (['txt', 'md', 'csv'].includes(ext)) {
-        const text = buffer.toString('utf-8')
-        if (text.trim())
-          docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${text.trim()}` })
-      }
-    }
+    // Downloads movidos para dentro do IIFE — a resposta SSE é retornada imediatamente
+    // (~1 s), evitando timeout de primeiro byte no Vercel/browser durante o download.
+    console.log(`[SSE][${T()}] JSON mode validado — ${uploadedPaths.length} arquivo(s) serão baixados no IIFE`)
 
   } else {
     // ── Modo form-data: arquivos recebidos diretamente ─────────────────────
@@ -296,7 +273,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!docBlocks.length)
+  // Em modo JSON, docBlocks ainda estão vazios (downloads ocorrem no IIFE)
+  if (!isJsonMode && !docBlocks.length)
     return Response.json({ error: 'Nenhum conteúdo legível nos arquivos enviados.' }, { status: 400 })
 
   // ── 2. Auth — antes de criar o stream (contexto de cookies disponível aqui) ─
@@ -307,7 +285,11 @@ export async function POST(req: NextRequest) {
     currentUserId = user?.id ?? null
   } catch { /* sem auth — histórico não será salvo */ }
 
-  console.log(`[SSE][${T()}] request ok — modo:${isJsonMode ? 'json' : 'form'} criterios:${criterios.join(',')} cliente:${cliente} docBlocks:${docBlocks.length} userId:${currentUserId}`)
+  console.log(
+    `[SSE][${T()}] request ok — modo:${isJsonMode ? 'json' : 'form'}`,
+    `criterios:${criterios.join(',')} cliente:${cliente} userId:${currentUserId}`,
+    isJsonMode ? `paths:${uploadedPaths.length}` : `docBlocks:${docBlocks.length}`,
+  )
 
   // ── 3. TransformStream SSE ────────────────────────────────────────────────
   // TransformStream tem melhor suporte de streaming incremental no Vercel do que
@@ -348,6 +330,51 @@ export async function POST(req: NextRequest) {
     }, 15_000)
 
     try {
+      // ── JSON mode: download dos arquivos (aqui, com SSE já ativo) ─────────
+      // Movido para dentro do IIFE para retornar o SSE imediatamente ao cliente,
+      // evitando timeout de primeiro byte enquanto o Supabase é acessado.
+      if (isJsonMode && uploadedPaths.length) {
+        send({ type: 'progress', message: 'Preparando documentos...' })
+        console.log(`[SSE][${T()}] downloading ${uploadedPaths.length} file(s) from storage`)
+        const dlAdmin = createAdminClient()
+
+        for (const filePath of uploadedPaths) {
+          const filename = filePath.split('/').pop() ?? 'arquivo'
+          const ext      = filename.split('.').pop()?.toLowerCase() ?? ''
+
+          const { data: blob, error } = await dlAdmin.storage
+            .from('checklist-uploads')
+            .download(filePath)
+
+          if (error || !blob) {
+            console.warn(`[SSE][${T()}] download falhou: ${filePath} —`, error?.message)
+            continue
+          }
+
+          const buffer = Buffer.from(await blob.arrayBuffer())
+          console.log(`[SSE][${T()}] downloaded: ${filename} (${buffer.byteLength} bytes)`)
+
+          if (ext === 'pdf') {
+            docBlocks.push(await pdfToDocBlock(buffer, filename))
+          } else if (ext === 'docx' || ext === 'doc') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await mammoth.extractRawText({ buffer: buffer as any })
+            if (result.value.trim())
+              docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${result.value.trim()}` })
+          } else if (['txt', 'md', 'csv'].includes(ext)) {
+            const text = buffer.toString('utf-8')
+            if (text.trim())
+              docBlocks.push({ type: 'text', text: `=== Documento: ${filename} ===\n${text.trim()}` })
+          }
+        }
+
+        if (!docBlocks.length) {
+          send({ type: 'error', message: 'Nenhum conteúdo legível nos arquivos enviados.' })
+          return
+        }
+        console.log(`[SSE][${T()}] docBlocks montados: ${docBlocks.length}`)
+      }
+
       // ── Critérios OEA ───────────────────────────────────────────────────
       send({ type: 'progress', message: 'Buscando critérios OEA...' })
       console.log(`[SSE][${T()}] fetching criteria from DB`)
