@@ -479,89 +479,72 @@ Analise os documentos abaixo e preencha o checklist de auditoria conforme as ins
 Para cada item, identifique o critério correto (coluna D), o requisito (coluna E) e o qualificador (coluna F).
 Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userContent: any[] = [{ type: 'text', text: userMessage }, ...docBlocks]
-
-      // ── Chamada ao Claude com pings vinculados ao fluxo de tokens ────────
-      // Usando .stream() ao invés de .create() para que o SDK não bloqueie.
-      // Adicionalmente, cada token recebido serve como oportunidade de verificar
-      // se deve enviar um ping — garantindo que dados fluem para o cliente
-      // enquanto o Claude ainda está gerando (período mais longo de silêncio).
+      // ── Chamada ao Claude — 1 request por documento, todos em paralelo ──────
+      // PROBLEMA ANTERIOR: 1 chamada com todos os docs → Claude gerava 150-200+
+      // itens em série → 20.000+ output tokens a 80 tok/s = ~250s só de geração.
+      // Com downloads + extraction: total > 300s → Vercel mata a função → erro.
+      //
+      // SOLUÇÃO: Promise.all com 1 chamada por documento.
+      // Cada chamada: 1 doc × 30k chars → ~30-40 itens → ~4.000 tokens → ~50s.
+      // Wall time total = max(tempo por doc) ≈ 50s. 5× mais rápido que em série.
+      // O setInterval de 15s mantém o SSE ativo durante todo o período paralelo.
       send({ type: 'progress', message: 'Analisando documentos com IA...' })
-      console.log(`[SSE][${T()}] starting Anthropic stream`)
+      console.log(`[SSE][${T()}] starting ${docBlocks.length} parallel Claude call(s)`)
 
-      const anthropicStream = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }).messages.stream({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 64000,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
-        messages: [{ role: 'user', content: userContent }],
-      })
+      const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-      // Pings a cada 8 s vinculados ao fluxo de tokens do Claude
-      let lastTokenPingTime = Date.now()
-      let tokenCount = 0
-      anthropicStream.on('text', () => {
-        tokenCount++
-        const now = Date.now()
-        if (now - lastTokenPingTime >= 8_000) {
-          console.log(`[SSE][${T()}] token ping (token ~${tokenCount})`)
-          send({ type: 'ping' })
-          lastTokenPingTime = now
+      // Helper local: extrai array de ChecklistItem de uma resposta em texto do Claude
+      const parseDocItems = (rawText: string): ChecklistItem[] => {
+        const fence = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+        const js    = fence
+          ? fence[1].trim()
+          : (() => { const a = rawText.indexOf('{'); const b = rawText.lastIndexOf('}'); return a !== -1 && b > a ? rawText.slice(a, b + 1) : rawText.trim() })()
+        for (const s of [js, js.replace(/,\s*([}\]])/g, '$1')]) {
+          try { return (JSON.parse(s) as { items?: ChecklistItem[] }).items ?? [] } catch { /* next */ }
         }
-      })
+        return []
+      }
 
-      const message = await anthropicStream.finalMessage()
-
-      console.log(
-        `[SSE][${T()}] Claude done — stop_reason:`, message.stop_reason,
-        '| output_tokens:', message.usage?.output_tokens,
-        '| input_tokens:', message.usage?.input_tokens,
-        '| total_tokens:', (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0),
+      const perDocItems = await Promise.all(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        docBlocks.map(async (block: any, idx: number): Promise<ChecklistItem[]> => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const content: any[] = [{ type: 'text', text: userMessage }, block]
+          console.log(`[SSE][${T()}] Claude doc[${idx}] start`)
+          try {
+            const msg = await anthropicClient.messages.stream({
+              model:      'claude-sonnet-4-6',
+              max_tokens: 12_000,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
+              messages: [{ role: 'user', content }],
+            }).finalMessage()
+            console.log(
+              `[SSE][${T()}] Claude doc[${idx}] done —`,
+              `stop:${msg.stop_reason} out:${msg.usage?.output_tokens} in:${msg.usage?.input_tokens}`,
+            )
+            const raw      = msg.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+            const docItems = parseDocItems(raw)
+            console.log(`[SSE][${T()}] doc[${idx}] → ${docItems.length} itens`)
+            return docItems
+          } catch (e) {
+            console.warn(`[SSE][${T()}] Claude doc[${idx}] error:`, e)
+            return [] as ChecklistItem[]
+          }
+        })
       )
 
-      if (message.stop_reason === 'max_tokens') {
-        console.error(`[SSE][${T()}] max_tokens atingido`)
-        send({ type: 'error', message: 'O checklist gerado é muito extenso. Reduza a quantidade de documentos ou divida em lotes menores e tente novamente.' })
+      const allItems = perDocItems.flat()
+      if (!allItems.length) {
+        console.error(`[SSE][${T()}] nenhum item extraído de nenhum documento`)
+        send({ type: 'error', message: 'A IA não encontrou itens auditáveis nos documentos. Verifique se os documentos são relevantes para o critério OEA selecionado.' })
         await writeQueue
         return
       }
+      console.log(`[SSE][${T()}] total items across all docs:`, allItems.length)
 
-      const rawText = message.content
-        .filter(b => b.type === 'text')
-        .map(b => (b as { type: 'text'; text: string }).text)
-        .join('')
-
-      console.log(`[SSE][${T()}] rawText length:`, rawText.length)
-
-      // ── Parse JSON ──────────────────────────────────────────────────────
       send({ type: 'progress', message: 'Gerando planilha...' })
-      let parsed: { items: ChecklistItem[] } | undefined
-      const tryParse = (s: string) => { parsed = JSON.parse(s); return true }
-
-      const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
-      const jsonStr    = fenceMatch
-        ? fenceMatch[1].trim()
-        : (() => { const a = rawText.indexOf('{'); const b = rawText.lastIndexOf('}'); return a !== -1 && b > a ? rawText.slice(a, b + 1) : rawText.trim() })()
-
-      let parseOk = false
-      for (const attempt of [
-        () => tryParse(jsonStr),
-        () => tryParse(jsonStr.replace(/,\s*([}\]])/g, '$1')),
-      ]) {
-        try { parseOk = attempt(); break } catch { /* next attempt */ }
-      }
-
-      if (!parseOk || !parsed?.items?.length) {
-        console.error(`[SSE][${T()}] JSON parse failed — rawText(500):`, rawText.slice(0, 500))
-        send({ type: 'error', message: 'A IA não retornou um checklist válido. Tente reformular os documentos ou tente novamente.' })
-        await writeQueue
-        return
-      }
-
-      console.log(`[SSE][${T()}] parsed items:`, parsed.items.length)
-
-      const items        = parsed.items.map((it, i) => ({ ...it, id: i + 1 }))
+      const items        = allItems.map((it, i) => ({ ...it, id: i + 1 }))
       const templateBuf  = loadTemplate()
       const xlsxBytes    = await fillTemplate(templateBuf, items)
       const filenameXlsx = `${buildFilename(cliente)}.xlsx`
