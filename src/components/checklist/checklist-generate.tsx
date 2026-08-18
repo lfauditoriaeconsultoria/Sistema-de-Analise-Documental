@@ -208,8 +208,12 @@ export function ChecklistGenerate() {
   const [result,    setResult]    = useState<{ filename: string; blob: Blob; count: number } | null>(null)
   const [dragging,  setDragging]  = useState(false)
   const [loadingCriteria, setLoadingCriteria] = useState(true)
+  const [elapsedSeconds, setElapsedSeconds]   = useState(0)
+  const [progressPct,    setProgressPct]      = useState(0)
 
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef  = useRef<HTMLInputElement>(null)
+  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const crawlRef  = useRef<ReturnType<typeof setInterval> | null>(null)
 
   /* ── Busca critérios do banco ── */
   useEffect(() => {
@@ -238,6 +242,49 @@ export function ChecklistGenerate() {
     }
     fetchCriteria()
   }, [])
+
+  /* ── Cleanup de intervals ao desmontar ── */
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (crawlRef.current) clearInterval(crawlRef.current)
+    }
+  }, [])
+
+  /* ── Helpers de progresso e timer ── */
+  function fmtTime(s: number): string {
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  }
+
+  function startLoading() {
+    setElapsedSeconds(0)
+    setProgressPct(0)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => setElapsedSeconds(prev => prev + 1), 1_000)
+  }
+
+  function stopLoading() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (crawlRef.current) { clearInterval(crawlRef.current); crawlRef.current = null }
+  }
+
+  function advanceProgress(pct: number) {
+    if (crawlRef.current) { clearInterval(crawlRef.current); crawlRef.current = null }
+    setProgressPct(pct)
+  }
+
+  // Crawl suave: avança 0,4% por segundo de `from` até `cap` (nunca ultrapassa)
+  function startCrawl(from: number, cap: number) {
+    if (crawlRef.current) { clearInterval(crawlRef.current); crawlRef.current = null }
+    let cur = from
+    crawlRef.current = setInterval(() => {
+      cur = Math.min(cur + 0.4, cap)
+      setProgressPct(cur)
+      if (cur >= cap && crawlRef.current) { clearInterval(crawlRef.current); crawlRef.current = null }
+    }, 1_000)
+  }
 
   /* ── Upload de arquivos ── */
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -293,6 +340,12 @@ export function ChecklistGenerate() {
 
         if (evt.type === 'progress' && evt.message) {
           setProgress(evt.message)
+          // Avança a barra conforme a etapa do servidor
+          if      (evt.message.includes('Preparando'))   advanceProgress(30)
+          else if (evt.message.includes('Buscando'))     advanceProgress(45)
+          else if (evt.message.includes('Analisando')) { advanceProgress(50); startCrawl(50, 84) }
+          else if (evt.message.includes('Gerando'))      advanceProgress(90)
+          else if (evt.message.includes('Baixando'))     advanceProgress(95)
         } else if (evt.type === 'error') {
           throw new Error(evt.message ?? 'Erro ao gerar checklist.')
         } else if (evt.type === 'done') {
@@ -300,6 +353,7 @@ export function ChecklistGenerate() {
           if (evt.signedUrl) {
             // Preferencial: baixa via URL assinada (evento SSE menor)
             setProgress('Baixando planilha...')
+            advanceProgress(95)
             const fileRes = await fetch(evt.signedUrl)
             if (!fileRes.ok) throw new Error('Falha ao baixar o arquivo gerado.')
             blob = await fileRes.blob()
@@ -312,6 +366,8 @@ export function ChecklistGenerate() {
           } else {
             throw new Error('Resposta inválida: arquivo não encontrado.')
           }
+          advanceProgress(100)
+          stopLoading()
           setResult({ filename: evt.filename ?? 'checklist.xlsx', blob, count: evt.count ?? 0 })
           setStage('done')
           return
@@ -326,6 +382,9 @@ export function ChecklistGenerate() {
 
   // Modo 1: total ≤ 3.5 MB — envia diretamente como multipart/form-data
   async function generateViaFormData(): Promise<void> {
+    setProgress('Enviando documentos...')
+    advanceProgress(15)
+
     const fd = new FormData()
     criterios.forEach(c => fd.append('criterios', c))
     fd.append('cliente', cliente.trim())
@@ -368,6 +427,7 @@ export function ChecklistGenerate() {
 
         uploadedCount++
         setProgress(`Enviando documentos... (${uploadedCount}/${files.length} concluídos)`)
+        setProgressPct(Math.round((uploadedCount / files.length) * 20))
         return storagePath
       })
     )
@@ -403,6 +463,7 @@ export function ChecklistGenerate() {
 
     setStage('loading')
     setResult(null)
+    startLoading()
 
     try {
       if (totalSize > VERCEL_BODY_LIMIT) {
@@ -413,6 +474,7 @@ export function ChecklistGenerate() {
         await generateViaFormData()
       }
     } catch (e) {
+      stopLoading()
       setError(e instanceof Error ? e.message : 'Erro desconhecido.')
       setStage('error')
     }
@@ -429,6 +491,10 @@ export function ChecklistGenerate() {
   }
 
   function handleReset() {
+    stopLoading()
+    setElapsedSeconds(0)
+    setProgressPct(0)
+    setProgress('')
     setStage('idle')
     setResult(null)
     setError('')
@@ -619,11 +685,27 @@ export function ChecklistGenerate() {
           </button>
 
           {stage === 'loading' && (
-            <div className="-mt-2 text-center space-y-1">
-              {progress && (
-                <p className="text-xs font-medium text-blue-600 dark:text-blue-400">{progress}</p>
-              )}
-              <p className="text-xs text-gray-400">
+            <div className="-mt-2 space-y-2.5">
+
+              {/* Barra de progresso */}
+              <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-[width] duration-700 ease-out"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+
+              {/* Etapa atual + timer */}
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 truncate">
+                  {progress || 'Iniciando…'}
+                </p>
+                <span className="text-xs text-gray-400 flex-shrink-0 ml-3 tabular-nums font-mono">
+                  ⏱ {fmtTime(elapsedSeconds)}
+                </span>
+              </div>
+
+              <p className="text-xs text-gray-400 text-center leading-relaxed">
                 A IA está lendo os procedimentos e cruzando com os requisitos OEA.
                 Isso pode levar de 1 a 3 minutos dependendo da quantidade de documentos.
               </p>
