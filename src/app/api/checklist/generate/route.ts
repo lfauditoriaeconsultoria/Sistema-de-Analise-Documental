@@ -521,6 +521,36 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
         return []
       }
 
+      // ── Retry helper para erros transitórios da Anthropic API ────────────────
+      // overloaded_error (HTTP 529) = servidores sobrecarregados — é transitório e
+      // recomendado pelo próprio Anthropic para ser retentado com backoff.
+      // Delays: 10s após 1ª falha, 20s após 2ª. Budget extra: ~30s.
+      // Budget total seguro: downloads 15s + retries 30s + Claude 100s + XLSX 10s = 155s < 300s.
+      const callWithRetry = async <T>(
+        fn: () => Promise<T>,
+        docIdx: number,
+        maxRetries = 2,
+      ): Promise<T> => {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            return await fn()
+          } catch (err) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const isOverloaded = (err as any)?.status === 529
+              || (err instanceof Error && err.message.toLowerCase().includes('overloaded'))
+            if (isOverloaded && attempt < maxRetries) {
+              const waitMs = (attempt + 1) * 10_000   // 10 s, 20 s
+              console.warn(`[SSE][${T()}] doc[${docIdx}] overloaded (tentativa ${attempt + 1}/${maxRetries}) — retry em ${waitMs / 1_000}s`)
+              await new Promise(r => setTimeout(r, waitMs))
+              continue
+            }
+            throw err
+          }
+        }
+        /* istanbul ignore next */
+        throw new Error('unreachable')
+      }
+
       // Promise.allSettled: continua mesmo se uma chamada falhar, coleta erros separadamente
       const settled = await Promise.allSettled(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -529,15 +559,18 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
           const content: any[] = [{ type: 'text', text: userMessage }, block]
           console.log(`[SSE][${T()}] Claude doc[${idx}] start`)
 
-          const msg = await anthropicClient.messages.stream({
-            model:      'claude-sonnet-4-6',
-            // 16k tokens ≈ 120 itens — equilibra completude e tempo de geração.
-            // A 80 tok/s por chamada: 16k/80 = 200s por doc; em paralelo wall time = max ≈ 200s.
-            max_tokens: 16_000,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
-            messages: [{ role: 'user', content }],
-          }).finalMessage()
+          const msg = await callWithRetry(
+            () => anthropicClient.messages.stream({
+              model:      'claude-sonnet-4-6',
+              // 16k tokens ≈ 120 itens — equilibra completude e tempo de geração.
+              // A 80 tok/s por chamada: 16k/80 = 200s por doc; em paralelo wall time = max ≈ 200s.
+              max_tokens: 16_000,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
+              messages: [{ role: 'user', content }],
+            }).finalMessage(),
+            idx,
+          )
 
           console.log(
             `[SSE][${T()}] Claude doc[${idx}] done —`,
@@ -576,8 +609,25 @@ Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
       }
 
       if (!allItems.length) {
+        // Converte erros técnicos da Anthropic API em mensagens legíveis para o usuário
+        const humanizeApiError = (raw: string): string => {
+          try {
+            const parsed = JSON.parse(raw) as { error?: { type?: string; message?: string } }
+            switch (parsed?.error?.type) {
+              case 'overloaded_error':
+                return 'Os servidores de IA estão sobrecarregados no momento. Aguarde alguns minutos e tente novamente.'
+              case 'rate_limit_error':
+                return 'Limite de requisições atingido. Aguarde alguns minutos e tente novamente.'
+              default:
+                return `Erro na IA: ${parsed?.error?.message ?? raw}. Tente novamente.`
+            }
+          } catch { /* não é JSON — usa heurística de texto */ }
+          if (raw.toLowerCase().includes('overloaded')) return 'Os servidores de IA estão sobrecarregados no momento. Aguarde alguns minutos e tente novamente.'
+          if (raw.toLowerCase().includes('rate limit')) return 'Limite de requisições atingido. Aguarde alguns minutos e tente novamente.'
+          return `Erro ao processar com a IA: ${raw}. Tente novamente.`
+        }
         const errMsg = apiErrors.length
-          ? `Erro ao processar com a IA: ${apiErrors[0]}. Tente novamente.`
+          ? humanizeApiError(apiErrors[0])
           : 'A IA não encontrou itens auditáveis nos documentos. Verifique se os documentos e o critério OEA selecionado são compatíveis.'
         console.error(`[SSE][${T()}] nenhum item — apiErrors:${apiErrors.length} settled:${settled.length}`)
         send({ type: 'error', message: errMsg })
