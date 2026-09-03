@@ -131,6 +131,21 @@ async function fillTemplate(
   // Node.js 20 usa Buffer<ArrayBufferLike>; ExcelJS espera Buffer legado — cast seguro em runtime
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(templateBuffer as any)
+
+  // ── Remove marca d'água / fundo de página do template ─────────────────────
+  // Templates podem conter uma imagem de fundo (Page Layout → Background) que
+  // aparece nas células vazias ao dar zoom out ≤ 35%. No ExcelJS, o background
+  // fica em worksheet._media[] com type === 'background'. Filtrando esse item,
+  // o `<picture r:id="..."/>` não é escrito no XML de saída e o fundo some.
+  // Outros tipos de mídia (imagens embutidas em células) são preservados.
+  for (const sheet of wb.worksheets) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s = sheet as any
+    if (Array.isArray(s._media)) {
+      s._media = s._media.filter((m: { type: string }) => m.type !== 'background')
+    }
+  }
+
   const ws = wb.worksheets[0]
 
   // Captura o estilo da 1ª linha de dados (row 3) para replicar em linhas extras
