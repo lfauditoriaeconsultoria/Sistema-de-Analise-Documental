@@ -438,9 +438,9 @@ Cada linha tem o formato:
 
 Regras:
 - "criterio" (coluna D): use exatamente o nome do critério ao qual o item pertence.
-- "requisito" (coluna E): use exatamente o NÚMERO do item (ex: 5.1, 5.3).
-- "qualificador" (coluna F): copie exatamente o valor entre colchetes — "Obrigatório" ou "Recomendável".
-- NUNCA repita o mesmo número de requisito para todos os itens.
+- "requisito" (coluna E): use o NÚMERO do item (ex: 5.1, 5.3). Se um mesmo trecho atende a múltiplos requisitos com evidência e metodologia idênticas, consolide em uma linha com os números separados por "; " (ex: "5.3; 5.1") em vez de criar linhas duplicadas.
+- "qualificador" (coluna F): copie o valor entre colchetes — "Obrigatório" ou "Recomendável". Quando múltiplos requisitos forem consolidados, use o mais restritivo (Obrigatório prevalece).
+- NUNCA crie linhas com processo_auditado, evidencia e metodologia idênticos — consolide os requisitos na coluna E.
 
 ${criteriaContexts.join('\n\n━━━\n\n')}`
         : `━━━ REFERÊNCIA NORMATIVA ━━━
@@ -463,8 +463,8 @@ Use aspas simples (') para citações internas — NUNCA aspas duplas dentro de 
     {
       "id": 1,
       "criterio": "nome oficial do critério OEA ao qual este item pertence",
-      "requisito": "número do requisito para este item (ex: 5.1, 5.3, 6.2) — VARIA por item",
-      "qualificador": "Obrigatório ou Recomendável — conforme classificação no Programa OEA",
+      "requisito": "número(s) do requisito — se o mesmo conteúdo atende a vários com evidência/metodologia idênticas, use ';' (ex: '5.3; 5.1')",
+      "qualificador": "Obrigatório ou Recomendável — se múltiplos requisitos, use o mais restritivo (Obrigatório prevalece)",
       "doc_codigo": "código do documento",
       "doc_versao": "versão/revisão ou '-'",
       "doc_nome": "nome completo do documento",
@@ -483,6 +483,7 @@ REGRAS CRÍTICAS:
 - "processo_auditado" DEVE ser transcrição verbatim (palavra por palavra) do documento — NUNCA parafrasear
 - "requisito" DEVE variar entre os itens — mapeie cada processo ao seu requisito correto
 - "criterio" DEVE indicar corretamente a qual critério o item pertence
+- ANTI-DUPLICIDADE: NUNCA crie duas linhas com "processo_auditado", "evidencia" e "metodologia" idênticos ou praticamente idênticos. Se o mesmo trecho atende a múltiplos requisitos com o mesmo conteúdo, consolide em uma linha com os requisitos separados por "; " no campo "requisito" (ex.: "5.3; 5.1"). Crie linhas separadas SOMENTE quando evidência OU metodologia OU processo_auditado forem efetivamente distintos entre requisitos.
 - Gere quantas linhas forem necessárias — não há limite
 - Extraia TODOS os trechos auditáveis relevantes para os critérios: ${criteriosLabel}
 - Não toque nas colunas Q em diante (etapa de conformidade)`

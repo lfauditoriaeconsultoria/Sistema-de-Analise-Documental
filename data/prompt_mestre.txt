@@ -49,7 +49,7 @@ Cada linha deve referenciar exatamente **uma seção** do documento de origem (n
 | **B** — Data auditoria | Deixar em branco | Preenchido manualmente na fase de campo |
 | **C** — Auditor Responsável | Deixar em branco | Preenchido manualmente |
 | **D** — Critério | Nome do critério selecionado | Ex.: "Segurança da Informação", "Segurança Física", "Parceiros Comerciais", "Segurança de Carga e Contêineres" — sempre o nome oficial do critério conforme o Anexo II |
-| **E** — Requisito | Número do requisito OEA dentro do critério selecionado | Sempre extraído do Anexo II referente àquele critério específico, nunca inventado |
+| **E** — Requisito | Número(s) do(s) requisito(s) OEA dentro do critério selecionado | Sempre extraído do Anexo II referente àquele critério específico, nunca inventado. Quando o mesmo trecho atende a múltiplos requisitos com evidência e metodologia idênticas, listar todos separados por ponto e vírgula (ex.: "5.3; 5.1") — uma linha por conjunto de requisitos com conteúdo equivalente. Criar linhas separadas apenas quando evidência, metodologia ou processo auditado diferirem entre requisitos. |
 | **F** — Qualificador | "Obrigatório" ou "Recomendável" | Conforme classificação oficial do requisito no Anexo II para aquele critério |
 | **G** — Documento (Código) | Código/nome do documento do cliente | Ex.: "POP TI 02", "PSI001", "NP-SEG-04", "MAN-RH-12" — qualquer tipo de documento aplicável ao critério |
 | **H** — Documento (Versão) | Versão/revisão do documento | Extrair do cabeçalho/rodapé do documento; usar "-" se não houver |
@@ -70,7 +70,10 @@ Cada linha deve referenciar exatamente **uma seção** do documento de origem (n
 
 - **Documento digitalizado sem camada de texto (imagem/scan):** ler visualmente página a página antes de descartar o documento como sem conteúdo relevante — vale para plantas de perímetro, fotos de CFTV, certificados digitalizados etc., não apenas para documentos de SI.
 - **Requisito OEA sem controle correspondente em nenhum documento do cliente:** ainda assim criar a linha com E/F/N/O/P preenchidos (o que se espera do requisito) e sinalizar em M que não foi localizado processo correspondente nos documentos — não omitir o requisito do checklist, independentemente do critério.
-- **Mesmo texto sustentando mais de um requisito:** se um único trecho do documento atende a dois requisitos OEA distintos do mesmo critério (ou até de critérios diferentes, quando aplicável), duplicar a linha, uma para cada requisito, mantendo M idêntico mas ajustando E/O/P a cada requisito.
+- **Mesmo texto sustentando mais de um requisito:** se um único trecho do documento atende a dois ou mais requisitos OEA distintos, avaliar antes de criar linhas separadas:
+  - **Consolidar em uma única linha** quando o processo auditado (coluna M), a evidência (coluna O) e a metodologia (coluna P) forem idênticos ou praticamente idênticos para todos os requisitos envolvidos. Nesse caso, listar os números dos requisitos separados por ponto e vírgula na coluna E (ex.: "5.3; 5.1") e usar o qualificador mais restritivo na coluna F (Obrigatório prevalece sobre Recomendável).
+  - **Criar linhas separadas** somente quando houver diferença efetiva na evidência esperada, na metodologia de análise ou no processo auditado — nesses casos a separação é necessária para preservar a rastreabilidade de cada requisito.
+  - **Proibido:** criar linhas com colunas M, O e P idênticas apenas para separar requisitos — isso gera duplicidade sem valor e torna o checklist mais extenso sem ganho de rastreabilidade.
 - **Numeração do documento do cliente diferente da numeração do OEA:** sempre preservar a numeração original do documento nas colunas J/K/L; a coluna E é o único lugar onde entra a numeração OEA.
 - **Critérios com documentos não textuais como evidência primária** (ex.: Segurança Física com plantas/mapas, Segurança de Carga com fotos de lacres): a coluna M ainda deve conter o texto do procedimento que rege o controle (ex.: a norma que descreve a inspeção), e a coluna O deve especificar o tipo de evidência visual/fotográfica esperada.
 
