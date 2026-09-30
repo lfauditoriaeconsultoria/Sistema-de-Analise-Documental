@@ -484,8 +484,8 @@ REGRAS CRÍTICAS:
 - "requisito" DEVE variar entre os itens — mapeie cada processo ao seu requisito correto
 - "criterio" DEVE indicar corretamente a qual critério o item pertence
 - ANTI-DUPLICIDADE: NUNCA crie duas linhas com "processo_auditado", "evidencia" e "metodologia" idênticos ou praticamente idênticos. Se o mesmo trecho atende a múltiplos requisitos com o mesmo conteúdo, consolide em uma linha com os requisitos separados por "; " no campo "requisito" (ex.: "5.3; 5.1"). Crie linhas separadas SOMENTE quando evidência OU metodologia OU processo_auditado forem efetivamente distintos entre requisitos.
-- Gere quantas linhas forem necessárias — não há limite
-- Extraia TODOS os trechos auditáveis relevantes para os critérios: ${criteriosLabel}
+- MATERIALIDADE ANTES DE QUANTIDADE: aplique os quatro testes do prompt mestre (relevância OEA, materialidade, auditabilidade prática e valor adicional) antes de criar cada linha. Não existe meta de quantidade — uma linha só existe se sua remoção prejudicaria a cobertura de um requisito OEA. Prefira um checklist enxuto e defensável a um extenso.
+- Cubra os critérios selecionados (${criteriosLabel}) com o MENOR número possível de controles materialmente distintos, consolidando etapas da mesma rotina que compartilham evidência e conclusão.
 - Não toque nas colunas Q em diante (etapa de conformidade)`
 
       const userMessage = `Critério(s) OEA selecionado(s): ${criteriosLabel}
@@ -493,7 +493,9 @@ Cliente: ${cliente}
 
 Analise os documentos abaixo e preencha o checklist de auditoria conforme as instruções.
 Para cada item, identifique o critério correto (coluna D), o requisito (coluna E) e o qualificador (coluna F).
-Extraia TODOS os itens auditáveis relevantes para os critérios informados.`
+Extraia apenas os controles que passem nos quatro testes de materialidade do prompt mestre —
+relevância OEA, materialidade, auditabilidade prática e valor adicional. Antes de finalizar, aplique
+a revisão final: se a remoção de uma linha não prejudicar a cobertura do requisito OEA, remova-a.`
 
       // ── Chamada ao Claude — 1 request por documento, todos em paralelo ──────
       // PROBLEMA ANTERIOR: 1 chamada com todos os docs → Claude gerava 150-200+

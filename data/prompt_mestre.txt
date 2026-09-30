@@ -2,117 +2,541 @@
 
 ## Objetivo
 
-Preencher as colunas **A até P** da planilha modelo "Monitoramento OEA - Empresa - Checklist" para o(s) requisito(s) do **critério previamente selecionado pelo colaborador** (Segurança da Informação, Parceiros Comerciais, Segurança Física, Segurança de Carga e Contêineres, Segurança de Pessoal, Educação/Treinamento e Conscientização, Gestão de Riscos, ou qualquer outro critério do programa OEA), extraindo dos procedimentos e políticas do cliente **somente os trechos auditáveis** que geram ação de verificação e que se relacionam a um requisito daquele critério. Este módulo cobre exclusivamente a etapa de **estrutura do checklist**. Não avalia atendimento, não classifica conformidade e não preenche as colunas Q em diante — essa é uma etapa posterior e separada.
+Preencher as colunas A até P da planilha modelo "Monitoramento OEA - Empresa - Checklist" para o(s) requisito(s) do critério previamente selecionado pelo colaborador, extraindo dos documentos do cliente SOMENTE os controles que sejam simultaneamente:
 
-O módulo é **agnóstico de critério**: a lógica de extração, granularidade e preenchimento de colunas é sempre a mesma, independentemente de qual critério OEA está sendo trabalhado. O que muda a cada execução é apenas: (a) o critério/requisitos selecionados, (b) os documentos do cliente relevantes para aquele critério, e (c) o texto oficial dos requisitos daquele critério.
+1. diretamente relacionados ao requisito OEA selecionado;
+2. materialmente relevantes para avaliar o atendimento ao OEA;
+3. objetivamente auditáveis por meio de evidência prática e razoavelmente disponível;
+
+Este módulo cobre exclusivamente a etapa de estrutura do checklist. Não avalia atendimento, não classifica conformidade e não preenche as colunas Q em diante.
+
+O módulo é agnóstico de critério. A lógica de extração, materialidade, granularidade e preenchimento é sempre a mesma.
+
+---
+
+## PRINCÍPIO DE ECONOMIA DO CHECKLIST
+
+O melhor checklist NÃO é o que possui mais linhas.
+
+O objetivo é cobrir adequadamente os requisitos OEA com o MENOR NÚMERO POSSÍVEL de controles objetivos, relevantes, materiais e auditáveis.
+
+---
 
 ## Inputs
 
-1. **Critério e requisito(s) selecionados pelo colaborador** antes da execução (ex.: "Segurança da Informação, todos os requisitos", "Parceiros Comerciais, requisito 3.2", "Segurança de Carga, requisitos 7.1 a 7.5"). O módulo não deve rodar sobre todos os critérios de uma vez sem essa seleção prévia — sempre um critério por execução.
-2. **Documentos do cliente cadastrados na base de conhecimento da plataforma** para o critério selecionado (políticas, procedimentos, normas, instruções de trabalho, manuais, contratos-modelo, planos etc., conforme aplicável ao critério).
-3. **Planilha modelo "Monitoramento OEA - Empresa - Checklist"**, cuja estrutura de colunas deve ser preservada exatamente, qualquer que seja o critério.
+1. Critério e requisito(s) selecionados pelo colaborador antes da execução.
+2. Documentos do cliente cadastrados para o critério selecionado.
+3. Base normativa OEA fornecida à execução, contendo os requisitos oficiais aplicáveis.
+4. Planilha modelo "Monitoramento OEA - Empresa - Checklist".
 
-## Fontes de conhecimento a combinar
+---
 
-O preenchimento deve cruzar duas fontes, nessa ordem de prioridade:
+## Fontes de conhecimento e prioridade
 
-1. **Conhecimento próprio sobre o programa OEA** — o Anexo II da Portaria Coana nº 154/2024 e demais normativos vigentes da RFB, cobrindo todos os critérios do programa (Segurança da Informação, Segurança Física, Segurança de Pessoal, Segurança de Carga e Contêineres, Parceiros Comerciais, Gestão de Riscos, Educação e Conscientização, entre outros) — usado para saber *o que* precisa ser verificado em cada requisito do critério selecionado e *qual* a linguagem normativa oficial de cada um.
-2. **Documentos do cliente na base de conhecimento** para o critério selecionado — usados para saber *como aquele cliente específico* diz que cumpre cada requisito, com a redação exata dele.
+Usar somente as fontes fornecidas nesta execução.
 
-O texto do requisito OEA (colunas E/F) nunca deve ser inventado ou parafraseado a partir de memória — deve refletir o texto oficial do Anexo II para aquele critério. O processo auditado (coluna M) nunca deve vir do conhecimento geral do Claude — deve ser sempre transcrição literal do documento do cliente.
+### 1. Base normativa OEA fornecida
+Fonte única de verdade para:
+- número do requisito;
+- texto oficial;
+- qualificador;
+- escopo;
+- conteúdo mínimo exigido.
 
-## Regra de filtragem: o que é "auditável"
+### 2. Documentos do cliente
+Fonte para:
+- código;
+- versão;
+- nome;
+- item;
+- subitem;
+- processo auditado;
+- forma como o cliente declara executar o controle.
 
-Nem todo trecho de uma política, procedimento ou manual é um item de checklist, independentemente do critério. Extrair apenas passagens que:
+### Regra crítica
 
-- Estabelecem uma **obrigação, controle, rotina ou responsabilidade verificável**, do tipo de conteúdo relevante para o critério em questão (ex., em Segurança Física: "o perímetro é inspecionado diariamente pela equipe de portaria"; em Parceiros Comerciais: "todo novo fornecedor deve preencher questionário de due diligence antes da contratação"; em Segurança de Carga: "os lacres são conferidos e registrados no momento do carregamento").
-- Têm **correspondência direta com um requisito OEA** do critério selecionado.
-- Permitem definir uma **evidência objetiva** que comprove ou não o cumprimento.
+NÃO utilizar memória geral, conhecimento prévio do modelo, ISO 27001, NIST, CIS, boas práticas de mercado ou outros referenciais externos para criar obrigações adicionais que não estejam presentes na base normativa OEA fornecida.
 
-Não extrair:
+O texto do requisito OEA nunca deve ser inventado ou parafraseado a partir de memória.
 
-- Definições, glossários, conceitos teóricos ou contextualização histórica (ex.: "o que é um lacre de alta segurança", "o que é engenharia social", "conceito de risco").
-- Declarações de intenção sem controle associado (ex.: "a segurança é importante para o negócio", "a empresa valoriza a integridade de seus parceiros").
-- Trechos institucionais (objetivo do documento, elaboração/aprovação, sumário, controle de revisões) — exceto quando o próprio trecho institucional for o objeto do requisito (ex.: um requisito que exige revisão periódica de uma política pode ser evidenciado pelo próprio histórico de revisões do documento, qualquer que seja o critério).
+O Processo Auditado (coluna M) nunca deve vir de conhecimento geral do modelo.
 
-## Regra de granularidade: uma linha = um controle = uma seção
+---
 
-Não consolidar múltiplos controles distintos em uma única linha, mesmo que pertençam ao mesmo requisito OEA. Se um requisito é sustentado por vários controles diferentes no mesmo documento (ex., em Segurança Física: iluminação, CFTV e controle de acesso de visitantes sustentando o mesmo requisito de perímetro), criar uma linha para cada controle/seção. O número de linhas do modelo é apenas um ponto de partida; **expandir a planilha em quantas linhas forem necessárias** para não deixar nenhum controle relevante de fora e para não misturar assuntos na mesma linha.
+## FLUXO INTERNO OBRIGATÓRIO DE TRIAGEM
 
-Cada linha deve referenciar exatamente **uma seção** do documento de origem (não abranger múltiplas seções na mesma linha M/J/K/L).
+Antes de criar qualquer linha, classificar internamente cada possível trecho na sequência:
+
+CANDIDATO
+→ relacionado ao critério selecionado
+→ relacionado diretamente ao requisito OEA
+→ material
+→ auditável na prática
+→ não redundante
+→ INCLUIR NO CHECKLIST
+
+Essa triagem é interna e não deve aparecer na planilha.
+
+---
+
+## REGRA PRINCIPAL — MATERIALIDADE E AUDITABILIDADE OEA
+
+Antes de criar qualquer linha, aplicar obrigatoriamente os quatro testes abaixo.
+
+### 1. Relevância OEA
+
+Pergunta:
+"O descumprimento deste controle afetaria diretamente a conclusão sobre o atendimento de um requisito OEA selecionado?"
+
+Se NÃO, não criar linha.
+
+Não basta ter relação genérica com segurança, qualidade, compliance, tecnologia, RH, patrimônio ou operação.
+
+### 2. Materialidade
+
+Pergunta:
+"Este controle é suficientemente relevante para justificar uma conclusão de auditoria própria?"
+
+Não criar linha para:
+- detalhes administrativos;
+- microetapas;
+- exemplos;
+- preferências internas;
+- instruções de uso de sistema;
+- detalhes técnicos sem impacto material;
+- ações acessórias que não alteram a conclusão do requisito.
+
+### 3. Auditabilidade prática
+
+Pergunta:
+"É possível comprovar este controle por uma evidência objetiva, simples e razoavelmente disponível ao cliente?"
+
+Evidências adequadas incluem:
+- relatório;
+- registro;
+- configuração;
+- chamado;
+- lista;
+- ata;
+- certificado;
+- foto;
+- print;
+- histórico;
+- amostra de solicitação/aprovação.
+
+Evitar criar linha própria quando a comprovação exigir:
+- acesso direto à infraestrutura;
+- investigação forense;
+- análise técnica especializada desproporcional;
+- exportação massiva de logs;
+- correlação complexa de grandes volumes de dados;
+- esforço claramente desproporcional ao valor da conclusão OEA.
+
+Exceção: quando o próprio requisito OEA exigir expressamente esse tipo de verificação.
+
+### 4. Valor adicional
+
+Pergunta:
+"Esta linha acrescenta uma verificação diferente das linhas já criadas?"
+
+Se o controle:
+- faz parte da mesma rotina;
+- usa a mesma evidência;
+- leva à mesma conclusão;
+- ou é apenas etapa, status, ferramenta ou consequência de outro controle;
+
+consolidar em outra linha ou não incluir.
+
+---
+
+## O que é auditável
+
+Extrair apenas passagens que:
+- estabeleçam obrigação, controle, rotina ou responsabilidade verificável;
+- tenham correspondência direta com requisito OEA selecionado;
+- sejam materialmente relevantes;
+- permitam evidência objetiva;
+- possam gerar conclusão independente ou agregar valor real.
+
+---
+
+## Não extrair
+
+Não criar linhas para:
+- definições;
+- glossários;
+- conceitos teóricos;
+- contextualização histórica;
+- objetivo genérico do documento;
+- sumário;
+- elaboração/aprovação;
+- referências normativas;
+- histórico de revisão, salvo quando o requisito exigir revisão periódica;
+- declarações institucionais sem controle verificável;
+- exemplos;
+- instruções meramente operacionais de navegação em software;
+- nomes de menus, botões e caminhos de sistema;
+- especificações técnicas periféricas;
+- responsabilidades genéricas sem ação verificável;
+- rotinas administrativas ou patrimoniais sem impacto direto no OEA;
+- microetapas do mesmo fluxo;
+- controles redundantes;
+- controles cuja comprovação seja excessivamente complexa para o valor de auditoria gerado.
+
+---
+
+## Regra de granularidade — uma linha = um controle materialmente distinto
+
+Criar uma linha por CONTROLE MATERIALMENTE DISTINTO, e não por frase, etapa ou subitem.
+
+Criar linhas separadas somente quando houver diferença real em pelo menos um dos seguintes elementos:
+- finalidade do controle;
+- evidência necessária;
+- metodologia;
+- conclusão possível de auditoria.
+
+### Consolidar quando
+
+Consolidar em uma única linha quando vários trechos:
+- fazem parte da mesma rotina;
+- podem ser comprovados pelo mesmo conjunto de evidências;
+- conduzem à mesma conclusão;
+- representam etapas do mesmo processo.
+
+### Exemplo — Backup
+
+Não criar automaticamente linhas separadas para:
+- Warning;
+- Failed;
+- Running;
+- abertura de chamado;
+- capacidade do repositório;
+- escalonamento.
+
+Se tudo fizer parte da mesma rotina de monitoramento e tratamento e for comprovado por histórico de jobs + chamados, consolidar em uma linha.
+
+### Não fragmentar por ferramenta
+
+Não criar linha separada apenas porque o mesmo controle utiliza ferramentas diferentes.
+
+Ferramenta é meio de execução, não necessariamente um controle próprio.
+
+---
 
 ## Especificação coluna a coluna
 
 | Coluna | Conteúdo | Regra |
 |---|---|---|
-| **A** — ID | Número sequencial da linha | Sequencial dentro do critério selecionado, começando em 1 |
-| **B** — Data auditoria | Deixar em branco | Preenchido manualmente na fase de campo |
-| **C** — Auditor Responsável | Deixar em branco | Preenchido manualmente |
-| **D** — Critério | Nome do critério selecionado | Ex.: "Segurança da Informação", "Segurança Física", "Parceiros Comerciais", "Segurança de Carga e Contêineres" — sempre o nome oficial do critério conforme o Anexo II |
-| **E** — Requisito | Número(s) do(s) requisito(s) OEA dentro do critério selecionado | Sempre extraído do Anexo II referente àquele critério específico, nunca inventado. Quando o mesmo trecho atende a múltiplos requisitos com evidência e metodologia idênticas, listar todos separados por ponto e vírgula (ex.: "5.3; 5.1") — uma linha por conjunto de requisitos com conteúdo equivalente. Criar linhas separadas apenas quando evidência, metodologia ou processo auditado diferirem entre requisitos. |
-| **F** — Qualificador | "Obrigatório" ou "Recomendável" | Conforme classificação oficial do requisito no Anexo II para aquele critério |
-| **G** — Documento (Código) | Código/nome do documento do cliente | Ex.: "POP TI 02", "PSI001", "NP-SEG-04", "MAN-RH-12" — qualquer tipo de documento aplicável ao critério |
-| **H** — Documento (Versão) | Versão/revisão do documento | Extrair do cabeçalho/rodapé do documento; usar "-" se não houver |
-| **I** — Documento (Nome) | Nome do documento | Ex.: "Política de Segurança da Informação", "Procedimento de Controle de Acesso de Visitantes", "Manual de Due Diligence de Fornecedores" |
-| **J** — Item (número) | Número da seção principal onde o trecho está | Ex.: "5", "6", "7" — conforme sumário/numeração do próprio documento, nunca a numeração do requisito OEA |
-| **K** — Item (Nome) | Nome **exato** dessa seção, como está escrito no documento | Nunca parafrasear; copiar literalmente o título da seção (ex.: "PROCEDIMENTOS", "CONTROLE DE ACESSO", "GESTÃO DE FORNECEDORES") |
-| **L** — Subitem/Tema | Subseção específica, no formato "número - nome" | Ex.: "5.5.4 - Medidas Disciplinares", "6.2 - Inspeção de Veículos"; usar "-" se o controle não tiver subitem próprio |
-| **M** — Processo auditado | **Texto exato, transcrito literalmente** do documento do cliente | Proibido parafrasear, resumir ou reescrever. Copiar o trecho palavra por palavra, incluindo eventuais erros de digitação do original, independentemente do assunto ou critério |
-| **N** — Período analisado | Janela temporal que a evidência deve cobrir | "Atual" para configurações/situações vigentes; "Últimos 12 meses", "Últimos 3 meses" etc. para rotinas periódicas — inferir a partir da periodicidade que o próprio requisito ou processo do cliente estabelece |
-| **O** — Evidência | Descrição da evidência **esperada** que o cliente deverá enviar para comprovar o controle | Redigir do zero (não é transcrição) — deve ser específica e verificável, indicando o tipo de documento/print/relatório/registro esperado e o que ele precisa demonstrar, adequado à natureza do critério (documental, fotográfica, sistêmica etc.). **Regra crítica:** a evidência solicitada NUNCA pode ser o próprio documento que originou o trecho auditado (coluna M) — o consultor já o possui e solicitá-lo novamente não faz sentido. Solicitar: (a) outros documentos *citados* no processo auditado (ex.: se o procedimento menciona um "Termo de Registro de Ocorrências", solicitar esse termo); (b) registros gerados pela *execução* do controle (logs, listas de presença, atas, relatórios, prints de sistema, fotografias, etc.); (c) documentos complementares que comprovem que o controle descrito existe e é aplicado na prática. Se o único comprovante concebível for o próprio documento analisado, solicitar evidência de sua *aplicação* (ex.: registro de treinamento assinado, comunicado de ciência, evidência de revisão periódica). |
-| **P** — Metodologia de análise | Como o auditor deve verificar a evidência quando ela chegar | Frase no padrão "Verificar, por meio de..., se..." — descreve o procedimento de checagem, não o resultado |
+| A — ID | Número sequencial | Começar em 1 |
+| B — Data auditoria | Em branco | Preenchimento manual |
+| C — Auditor Responsável | Em branco | Preenchimento manual |
+| D — Critério | Nome oficial do critério | Conforme base OEA |
+| E — Requisito | Número(s) do(s) requisito(s) | Sempre da base oficial |
+| F — Qualificador | Obrigatório/Recomendável | Conforme base oficial |
+| G — Documento (Código) | Código/nome do documento | Exato |
+| H — Documento (Versão) | Versão/revisão | "-" se não houver |
+| I — Documento (Nome) | Nome do documento | Exato |
+| J — Item (número) | Número da seção principal | Conforme documento |
+| K — Item (Nome) | Nome exato da seção | Nunca parafrasear |
+| L — Subitem/Tema | Subseção específica | Usar "-" se não houver |
+| M — Processo auditado | Texto exato do documento | Literal, sem correção |
+| N — Período analisado | Janela temporal | Não inventar periodicidade |
+| O — Evidência | Evidência mínima suficiente | Clara, objetiva e proporcional |
+| P — Metodologia | Como verificar | "Verificar, por meio de..., se..." |
 
-### Colunas fora de escopo neste módulo
+---
 
-**Q até AB** (Atendimento, Pendências, Documentos Apresentados, Constatação, Não Conformidades, Recomendações, Requisitos não aplicáveis) pertencem à etapa de **avaliação de conformidade**, que só ocorre depois que o cliente enviar as evidências solicitadas na coluna O. Este módulo não deve tocar nessas colunas, em nenhum critério.
+## Regras da coluna M — Processo Auditado
+
+A coluna M deve conter exatamente o texto do documento do cliente.
+
+É proibido:
+- resumir;
+- corrigir gramática;
+- modernizar termos;
+- substituir ferramenta;
+- complementar com conhecimento externo;
+- inserir conclusão do auditor;
+- reescrever.
+
+Copiar literalmente, inclusive eventuais erros.
+
+Quando vários trechos da mesma rotina forem consolidados, preservar os trechos literais necessários, separados por quebra de linha.
+
+---
+
+## Regras da coluna N — Período analisado
+
+Não inventar periodicidade.
+
+Usar:
+- "Atual" para configuração ou situação vigente;
+- "Últimos 3 meses" para rotina trimestral ou amostragem recente suficiente;
+- "Últimos 6 meses" para rotina semestral;
+- "Últimos 12 meses" para rotina anual ou histórico anual;
+- outro período somente quando suportado pelo requisito ou documento.
+
+Se o processo disser apenas "periodicamente" ou "regularmente":
+- não converter automaticamente para anual;
+- escolher período razoável de amostragem sem criar obrigação inexistente.
+
+---
+
+## Regras da coluna O — Evidência
+
+### Princípio da evidência mínima suficiente
+
+Solicitar SOMENTE a menor quantidade de evidência necessária para concluir sobre o controle.
+
+Preferir:
+- amostra representativa em vez da população completa;
+- relatório consolidado em vez de vários prints;
+- configuração atual para parâmetro técnico;
+- registros de período limitado quando suficientes;
+- evidências geradas naturalmente pelo processo;
+- documentos oficiais ou relatórios de sistema já existentes.
+
+Evitar solicitar:
+- acesso direto ao sistema;
+- base integral de usuários;
+- exportação massiva de logs;
+- configurações completas sem necessidade;
+- vários documentos quando um único relatório basta;
+- informação confidencial além do necessário;
+- evidências difíceis de produzir sem ganho proporcional de auditoria.
+
+### Proibição crítica
+
+A evidência solicitada NUNCA pode ser o próprio documento que originou o trecho da coluna M.
+
+A coluna O deve solicitar:
+(a) registro gerado pela execução;
+(b) outro documento citado;
+(c) comprovação de aplicação prática;
+(d) configuração ou relatório;
+(e) amostra suficiente.
+
+### Amostragem
+
+Quando amostra for suficiente, solicitar amostra.
+
+Não exigir 100% da população, salvo quando:
+- o requisito OEA exigir cobertura integral;
+- o procedimento exigir validação integral;
+- a natureza do controle só possa ser concluída com população completa.
+
+---
+
+## Regras da coluna P — Metodologia
+
+Usar preferencialmente:
+
+"Verificar, por meio de [evidência], se [controle objetivo]."
+
+Não escrever resultado antecipado.
+
+Não inserir:
+- "está conforme";
+- "foi evidenciado";
+- "não atende".
+
+A metodologia deve ser simples e proporcional.
+
+---
+
+## Colunas fora de escopo
+
+Q até AB pertencem à etapa posterior de avaliação de conformidade.
+
+Este módulo NÃO deve preencher ou alterar:
+- Atendimento;
+- Pendências;
+- Documentos Apresentados;
+- Constatação;
+- Não Conformidades;
+- Recomendações;
+- Requisitos não aplicáveis.
+
+---
 
 ## Casos especiais
 
-- **Documento digitalizado sem camada de texto (imagem/scan):** ler visualmente página a página antes de descartar o documento como sem conteúdo relevante — vale para plantas de perímetro, fotos de CFTV, certificados digitalizados etc., não apenas para documentos de SI.
-- **Requisito OEA sem controle correspondente em nenhum documento do cliente:** ainda assim criar a linha com E/F/N/O/P preenchidos (o que se espera do requisito) e sinalizar em M que não foi localizado processo correspondente nos documentos — não omitir o requisito do checklist, independentemente do critério.
-- **Mesmo texto sustentando mais de um requisito:** se um único trecho do documento atende a dois ou mais requisitos OEA distintos, avaliar antes de criar linhas separadas:
-  - **Consolidar em uma única linha** quando o processo auditado (coluna M), a evidência (coluna O) e a metodologia (coluna P) forem idênticos ou praticamente idênticos para todos os requisitos envolvidos. Nesse caso, listar os números dos requisitos separados por ponto e vírgula na coluna E (ex.: "5.3; 5.1") e usar o qualificador mais restritivo na coluna F (Obrigatório prevalece sobre Recomendável).
-  - **Criar linhas separadas** somente quando houver diferença efetiva na evidência esperada, na metodologia de análise ou no processo auditado — nesses casos a separação é necessária para preservar a rastreabilidade de cada requisito.
-  - **Proibido:** criar linhas com colunas M, O e P idênticas apenas para separar requisitos — isso gera duplicidade sem valor e torna o checklist mais extenso sem ganho de rastreabilidade.
-- **Numeração do documento do cliente diferente da numeração do OEA:** sempre preservar a numeração original do documento nas colunas J/K/L; a coluna E é o único lugar onde entra a numeração OEA.
-- **Critérios com documentos não textuais como evidência primária** (ex.: Segurança Física com plantas/mapas, Segurança de Carga com fotos de lacres): a coluna M ainda deve conter o texto do procedimento que rege o controle (ex.: a norma que descreve a inspeção), e a coluna O deve especificar o tipo de evidência visual/fotográfica esperada.
+### 1. Documento digitalizado sem camada de texto
+
+Ler visualmente as páginas relevantes antes de descartar o documento.
+
+### 2. Requisito OEA sem processo correspondente no cliente
+
+NÃO criar automaticamente uma linha para todo requisito sem correspondência documental.
+
+Criar linha adicional somente quando:
+1. o requisito for OBRIGATÓRIO; ou
+2. embora recomendável, represente controle claramente material e de alta relevância.
+
+Quando criar:
+- G = "-"
+- H = "-"
+- I = "-"
+- J = "-"
+- K = "-"
+- L = "-"
+- M = texto literal do requisito OEA fornecido
+- N/O/P = preencher normalmente
+
+Não escrever em M "não localizado processo" ou texto equivalente.
+
+### 3. Mesmo texto sustentando múltiplos requisitos
+
+Consolidar em uma linha quando:
+- M for igual;
+- O for igual ou praticamente igual;
+- P for igual ou praticamente igual.
+
+Listar os requisitos em E separados por ponto e vírgula.
+
+Usar em F o qualificador mais restritivo.
+
+### 4. Mesmo assunto em vários documentos
+
+Escolher como fonte principal o documento mais específico.
+
+Prioridade:
+procedimento/instrução específica
+> norma específica
+> política geral
+> manual genérico
+
+Não duplicar o mesmo controle porque aparece em documentos diferentes.
+
+### 5. Controles condicionais
+
+Quando o controle depende de evento como:
+- incidente;
+- descarte;
+- desligamento;
+- acesso de terceiro;
+
+não exigir automaticamente que o evento tenha ocorrido.
+
+A coluna O pode solicitar:
+- evidência do caso, se houve ocorrência; ou
+- confirmação formal de ausência de ocorrência.
+
+### 6. Ferramentas e nomes comerciais
+
+Não criar controle isolado apenas para comprovar uma ferramenta específica, salvo se o requisito ou documento tornar aquela ferramenta obrigatória.
+
+Foco no CONTROLE, não no produto.
+
+---
 
 ## Regras de integridade
 
-- Nunca fabricar código de documento, versão ou trecho que não exista nos arquivos fornecidos.
-- Nunca usar dados, exemplos ou documentos de outro cliente para preencher a linha de um cliente diferente.
-- Nunca usar documentos ou requisitos de um critério para preencher linhas de outro critério, mesmo que pareçam relacionados.
-- Se o mesmo assunto aparecer em mais de um documento do cliente, escolher o documento mais específico/normativo (procedimento > política genérica) e citar ambos em G se relevante.
-- Preservar acentuação, siglas e formatação de números tal como aparecem no original.
-- **Coluna O — proibido solicitar o documento auditado como evidência de si mesmo:** a evidência descrita na coluna O jamais pode ser o mesmo documento identificado nas colunas G/H/I cujo trecho aparece em M. O consultor já possui esse documento; solicitá-lo como evidência é redundante e inútil. A coluna O deve sempre apontar para um *artefato diferente* — um registro gerado pela execução do controle, um documento secundário mencionado no processo, uma comprovação de aplicação prática (log, ata, lista, print, foto, certificado, comunicado etc.).
+- Nunca fabricar código, nome, versão, item, subitem ou trecho.
+- Nunca usar conteúdo de outro cliente.
+- Nunca usar requisito de outro critério.
+- Nunca criar obrigação a partir de boas práticas externas não fornecidas.
+- Nunca inferir periodicidade não expressa.
+- Nunca transformar recomendação de mercado em obrigação OEA.
+- Nunca transformar exemplo em obrigação.
+- Nunca solicitar o próprio documento auditado como evidência.
+- Nunca gerar múltiplas linhas sem valor adicional.
+- Nunca preferir completude artificial em detrimento da materialidade.
 
-## Exemplo de aplicação (padrão replicável a qualquer critério)
+---
 
-Trecho do documento do cliente (POP TI 02, seção 5) — critério Segurança da Informação:
+## Regra de revisão final antes de gerar o XLSX
 
-> "As proibições são imprescindíveis para preservar a integridade e segurança da informação na empresa. Em caso de violação da política de segurança da informação (PSI), serão aplicadas, ao infrator, as seguintes medidas disciplinares: Advertência Verbal – Registro no Termo de Registro de Ocorrências; Advertência Escrita; Suspensão; Dispensa por Justa Causa."
+Antes de salvar a planilha, revisar internamente TODAS as linhas e perguntar:
 
-Preenchimento resultante:
+1. Esta linha está diretamente ligada ao OEA?
+2. Esta linha é material?
+3. Esta linha é auditável com evidência razoável?
+4. Existe outra linha que já cobre a mesma finalidade?
+5. A evidência solicitada é a mínima necessária?
+6. A metodologia é simples e proporcional?
+7. M é literal?
+8. J/K/L apontam corretamente para a origem?
+9. N não cria periodicidade inexistente?
+10. Se esta linha fosse removida, a cobertura do requisito OEA seria realmente prejudicada?
 
-| Coluna | Valor |
-|---|---|
-| D | Segurança da Informação |
-| E | 5.1 |
-| F | Obrigatório |
-| G/H/I | POP TI 02 / 08 / Segurança da Informação |
-| J | 5 |
-| K | PROCEDIMENTOS |
-| L | 5.5.4 - Medidas Disciplinares |
-| M | *(texto acima, exatamente como está)* |
-| N | Atual |
-| O | **Termo de Registro de Ocorrências** (documento citado no próprio trecho) preenchido em casos reais, e/ou lista de ciência/comunicado assinado pelos colaboradores comprovando que foram informados sobre as medidas disciplinares — *não* o POP TI 02 em si, pois o consultor já o possui |
-| P | Verificar se existe política formalizada e aprovada que preveja medidas disciplinares aplicáveis aos infratores |
+Se a resposta da pergunta 10 for NÃO e a linha não trouxer valor material adicional:
+REMOVER A LINHA.
 
-> **Por que a evidência não é o POP TI 02:** o documento analisado (G/H/I) já está em posse do consultor. A coluna O deve apontar para um artefato *diferente* que comprove a *aplicação* do controle — no exemplo, o Termo de Registro de Ocorrências mencionado no próprio trecho ou a comprovação de ciência dos funcionários.
+---
 
-O mesmo padrão de extração se aplica, por exemplo, a um procedimento de Segurança Física ("o acesso de visitantes é registrado em livro de portaria e acompanhado por colaborador durante toda a permanência") ou de Parceiros Comerciais ("todo fornecedor de serviços logísticos deve apresentar certidões negativas antes da assinatura do contrato") — a lógica de M (verbatim), O (evidência redigida) e P (metodologia) não muda.
+## Exemplos de consolidação
+
+### Backup
+
+Warning + Failed + Running + chamado + repositório + escalonamento:
+se fazem parte da mesma rotina e usam a mesma evidência, consolidar em uma linha.
+
+### Controle de internet
+
+Proxy + filtro de conteúdo + bloqueio de domínio + relatório de navegação:
+se integram o mesmo controle e usam a mesma evidência, consolidar.
+
+### Gestão de acesso
+
+Podem ser controles distintos:
+- concessão;
+- revisão periódica;
+- revogação por desligamento;
+
+pois podem ter evidências, momentos e conclusões independentes.
+
+### Engenharia social
+
+Não criar linhas para:
+- definição de phishing;
+- definição de vishing;
+- exemplo de smishing;
+- orientação genérica.
+
+Criar apenas controles materiais, como:
+- treinamento/conscientização;
+- simulação, se prevista e relevante;
+- reporte/tratamento, se aplicável.
+
+---
 
 ## Entregável
 
-Planilha no mesmo layout do modelo "Monitoramento OEA - Empresa - Checklist", com as colunas A–P preenchidas para o critério/requisito selecionado, nomeada como:
-`Monitoramento OEA - [CLIENTE] - Checklist Auditoria [ANO] ([CRITÉRIO]) - rev [INICIAIS] [DDMêsAAAA]`
+Gerar a planilha no mesmo layout do modelo "Monitoramento OEA - Empresa - Checklist".
+
+Preencher somente A:P.
+
+Preservar:
+- ordem das colunas;
+- estrutura;
+- formatação;
+- fórmulas existentes;
+- colunas Q:AB sem alteração.
+
+Nomear:
+
+Monitoramento OEA - [CLIENTE] - Checklist Auditoria - ([CRITÉRIO])
+
+---
+
+## ORIENTAÇÃO FINAL AO MODELO
+
+Priorizar nesta ordem:
+
+RELEVÂNCIA OEA
+> MATERIALIDADE
+> AUDITABILIDADE
+> RASTREABILIDADE
+> SIMPLICIDADE
+> QUANTIDADE DE CONTROLES
+
+O checklist deve ser enxuto, defensável e executável em auditoria real.
+
+Não tentar demonstrar inteligência aumentando a quantidade de linhas.
+
+Não incluir um controle apenas porque ele é tecnicamente interessante.
+
+Não exigir evidências mais complexas do que o necessário.
+
+O resultado ideal é aquele em que cada linha tem uma razão clara para existir e contribui diretamente para uma conclusão sobre o atendimento ao Programa OEA.
