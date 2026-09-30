@@ -23,8 +23,7 @@ values (
 )
 on conflict (id) do nothing;
 
--- 2. Habilita RLS no bucket
-alter table storage.objects enable row level security;
+-- 2. Políticas RLS (storage.objects já tem RLS ativado por padrão no Supabase)
 
 -- 3. Usuário autenticado pode fazer upload na própria pasta (userId/arquivo)
 create policy "checklist_uploads_insert"
