@@ -1,0 +1,75 @@
+EXCERTOS DE REFERÊNCIA DE ESTILO — Perfil do Operador (documento real de outro cliente)
+
+⚠️ ESTES EXCERTOS SÃO SOMENTE UM MODELO DE ESTRUTURA E TOM DE ESCRITA.
+NENHUM nome de empresa, CNPJ, CPF, sistema, procedimento, número ou fato aqui contido pode
+ser reaproveitado, citado ou mencionado na resposta de qualquer outro cliente. Use apenas
+como referência de: (a) como organizar o parágrafo, (b) como citar documentos/itens internos,
+(c) nível de detalhamento, (d) tom institucional em terceira pessoa.
+
+━━━ EXEMPLO 1 — item de natureza cadastral/societária ━━━
+
+Pergunta original:
+"Informe os dados dos proprietários ou principais acionistas da empresa. Se a empresa
+pertencer diretamente a pessoas físicas, informe nome, CPF e percentual de participação
+no capital da empresa."
+
+Resposta (modelo de estrutura — NÃO copiar o conteúdo):
+"O controle societário da [EMPRESA], inscrita no CNPJ sob o nº [CNPJ], é exercido
+integralmente por pessoas físicas. Os administradores e representantes legais da empresa
+são: [Nome 1], inscrito no CPF sob o nº [CPF], detentor de [X]% do capital social, e
+[Nome 2], inscrita no CPF sob o nº [CPF], detentora de [Y]% do capital social."
+
+Evidência
+[Nome_do_arquivo_1].pdf
+
+━━━ EXEMPLO 2 — item de controle/procedimento de segurança ━━━
+
+Pergunta original (item obrigatório do critério):
+"O OEA deve manter sistema de controle de acesso aos registros internos."
+
+Resposta (modelo de estrutura — NÃO copiar o conteúdo):
+"As informações relacionadas às operações de comércio exterior são protegidas contra
+acesso não autorizado, sendo a integridade dos dados garantida logicamente por meio de
+login e senha de acesso ao sistema informatizado "[NOME DO SISTEMA]", os quais são
+individuais para cada usuário. Essa diretriz reforça boas práticas de segurança
+cibernética, baseadas nos princípios de autenticação forte e responsabilidade
+individual, sendo essencial para proteger os sistemas de TI contra acessos indevidos.
+
+Conforme estabelecido no Procedimento de Gestão de Contas e Senhas ([CÓDIGO DO
+PROCEDIMENTO]), cada usuário possui uma conta individual para acesso aos sistemas
+corporativos, sendo vedado o uso de contas genéricas ou compartilhadas (item 4.1 —
+Contas Individuais).
+
+No que se refere à proteção por autenticação, o procedimento estabelece critérios
+mínimos para criação de senhas seguras, incluindo a utilização de combinação de letras
+maiúsculas, minúsculas, números e símbolos, bem como a definição de comprimento mínimo
+e restrições quanto ao uso de informações pessoais (item 4.2 — Criação e Alteração de
+Senhas). O procedimento também determina que as senhas sejam alteradas periodicamente,
+contribuindo para a redução dos riscos de comprometimento de credenciais e para o
+fortalecimento dos controles de acesso aos sistemas corporativos (item 4.2 — Criação e
+Alteração de Senhas).
+
+Adicionalmente, o documento prevê a adoção de mecanismos complementares de segurança,
+como bloqueio automático de contas após tentativas inválidas de login e utilização de
+autenticação multifator (MFA) sempre que possível, especialmente em sistemas críticos
+(item 4.3 — Proteção contra Acessos Indevidos)."
+
+Evidência
+[Nome_do_procedimento_citado].pdf
+[Nome_da_evidencia_de_parametrizacao].pdf
+
+━━━ PADRÃO A EXTRAIR DESTES EXEMPLOS ━━━
+
+1. Parágrafos corridos em terceira pessoa institucional (nunca primeira pessoa, nunca em
+   lista de tópicos soltos como resposta final — os tópicos podem existir dentro do
+   documento do cliente, mas a resposta redigida é discursiva).
+2. Sempre que a resposta citar uma regra específica de um procedimento do cliente, citar
+   entre parênteses o item/seção exata de onde aquela regra vem — nunca genericamente
+   "o procedimento prevê", mas "(item X.X — Nome da Seção)".
+3. Explicar o racional/objetivo do controle quando isso ajuda a demonstrar entendimento
+   técnico (ex.: "reforça boas práticas de..."), sem exagerar em teoria — o foco é o que
+   a empresa faz, não uma aula sobre o tema.
+4. Nunca inserir "Atende ao requisito: ( ) Sim ( ) Não" ou qualquer checkbox de
+   autoavaliação — isso pertence a uma etapa de conformidade fora deste módulo.
+5. Fechar mentalmente a resposta associando-a aos documentos que a sustentam (a lista de
+   "Evidência" em si é tratada à parte pelo sistema, não faz parte do texto de "resposta").

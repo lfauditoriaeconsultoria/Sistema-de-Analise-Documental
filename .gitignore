@@ -40,3 +40,6 @@ audit_debug.txt
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Documento real de cliente — uso local apenas, nunca versionar
+Perfil Operador - VL CARGO*.docx

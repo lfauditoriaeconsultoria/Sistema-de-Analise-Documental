@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FilePlus, Clock, BookOpen,
-  Settings, LogOut, ChevronLeft, Menu, Sun, Moon, Bot, ClipboardList,
+  Settings, LogOut, ChevronLeft, Menu, Sun, Moon, Bot, ClipboardList, IdCard,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -26,6 +26,7 @@ const navItems: NavItem[] = [
   { href: '/analysis/new',     label: 'Nova Análise',         icon: <FilePlus        size={18} /> },
   { href: '/ai-chat',          label: 'Consultor IA',         icon: <Bot             size={18} /> },
   { href: '/audit',            label: 'Auditoria OEA',        icon: <ClipboardList   size={18} /> },
+  { href: '/perfil-operador',  label: 'Perfil Operador',      icon: <IdCard          size={18} /> },
   { href: '/analysis/history', label: 'Histórico',            icon: <Clock           size={18} /> },
   { href: '/reference-docs',   label: 'Base de Conhecimento', icon: <BookOpen        size={18} /> },
   { href: '/admin',            label: 'Administração',        icon: <Settings        size={18} />, adminOnly: true },
