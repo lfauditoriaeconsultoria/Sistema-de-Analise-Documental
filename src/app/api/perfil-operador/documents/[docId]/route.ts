@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 
 type Params = { params: Promise<{ docId: string }> }
 
@@ -19,7 +19,7 @@ async function loadOwnedDocument(admin: ReturnType<typeof createAdminClient>, do
 /** GET — devolve uma URL assinada para visualizar o documento original */
 export async function GET(req: NextRequest, { params }: Params) {
   const { docId } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 /** DELETE — remove o documento (storage + linha + vínculos em cascata) */
 export async function DELETE(req: NextRequest, { params }: Params) {
   const { docId } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()

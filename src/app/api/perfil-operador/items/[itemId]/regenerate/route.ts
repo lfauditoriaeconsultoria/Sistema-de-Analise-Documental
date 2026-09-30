@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 import { generateItemAnswer, humanizeApiError } from '@/lib/perfil-operador/generate-item'
 
 export const maxDuration = 60
@@ -11,7 +11,7 @@ type Params = { params: Promise<{ itemId: string }> }
 /** POST — (re)gera a resposta de um único item, usando somente os documentos vinculados a ele */
 export async function POST(req: NextRequest, { params }: Params) {
   const { itemId } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()

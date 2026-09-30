@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 import { extractDocumentText } from '@/lib/perfil-operador/extract-text'
 
 /**
@@ -9,7 +9,7 @@ import { extractDocumentText } from '@/lib/perfil-operador/extract-text'
  * única vez e grava tudo no banco, pronto para ser vinculado a itens.
  */
 export async function POST(req: NextRequest) {
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))

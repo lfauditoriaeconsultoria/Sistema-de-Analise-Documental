@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 import { SelectedOeaItem } from '@/types/perfil-operador'
 
 /** GET — lista as elaborações do usuário autenticado (página hub) */
 export async function GET(req: NextRequest) {
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
 /** POST — cria uma nova elaboração já com os itens selecionados no passo 1 */
 export async function POST(req: NextRequest) {
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))

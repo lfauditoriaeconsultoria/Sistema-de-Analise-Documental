@@ -1,13 +1,13 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 
 type Params = { params: Promise<{ docId: string }> }
 
 /** PUT — substitui o conjunto de itens vinculados a este documento */
 export async function PUT(req: NextRequest, { params }: Params) {
   const { docId } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()

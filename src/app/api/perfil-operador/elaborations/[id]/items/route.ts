@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 import { SelectedOeaItem } from '@/types/perfil-operador'
 
 type Params = { params: Promise<{ id: string }> }
@@ -8,7 +8,7 @@ type Params = { params: Promise<{ id: string }> }
 /** POST — amplia a seleção de itens de uma elaboração já existente (ignora duplicados) */
 export async function POST(req: NextRequest, { params }: Params) {
   const { id: elaborationId } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()

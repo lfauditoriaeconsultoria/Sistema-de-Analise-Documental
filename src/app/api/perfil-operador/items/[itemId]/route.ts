@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 
 type Params = { params: Promise<{ itemId: string }> }
 
@@ -24,7 +24,7 @@ async function loadOwnedItem(admin: ReturnType<typeof createAdminClient>, itemId
 /** PATCH — salva edição manual da resposta (marca manually_edited = true) */
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { itemId } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()

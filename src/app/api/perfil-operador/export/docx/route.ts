@@ -6,6 +6,7 @@ import {
 import * as fs from 'fs'
 import * as path from 'path'
 import { PerfilOperadorItem } from '@/types/perfil-operador'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 
 /* ── Paleta — mesma identidade visual de /api/audit/docx ── */
 const C = {
@@ -74,6 +75,11 @@ function itemBlock(item: PerfilOperadorItem): Paragraph[] {
 }
 
 export async function POST(req: NextRequest) {
+  // Módulo em desenvolvimento — liberado apenas para administradores
+  if (!(await getAuthedAdmin(req))) {
+    return Response.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+
   try {
     const body = await req.json()
     const cliente = String(body.cliente ?? '').trim()

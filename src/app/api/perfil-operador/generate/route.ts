@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 import { generateItemAnswer, humanizeApiError } from '@/lib/perfil-operador/generate-item'
 import { PerfilOperadorDocument, PerfilOperadorItem } from '@/types/perfil-operador'
 
@@ -23,7 +23,7 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T,
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const body           = await req.json().catch(() => ({}))

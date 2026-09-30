@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedUser } from '@/lib/perfil-operador/auth'
+import { getAuthedAdmin } from '@/lib/perfil-operador/auth'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -18,7 +18,7 @@ async function loadOwnedElaboration(admin: ReturnType<typeof createAdminClient>,
 /** GET — elaboração completa: itens, documentos e vínculos já montados */
 export async function GET(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 /** PATCH — atualiza metadados da elaboração (cliente, status) */
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()
@@ -87,7 +87,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 /** DELETE — remove a elaboração (cascade no banco) + limpa os arquivos no storage */
 export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const user = await getAuthedUser(req)
+  const user = await getAuthedAdmin(req)
   if (!user) return Response.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = createAdminClient()

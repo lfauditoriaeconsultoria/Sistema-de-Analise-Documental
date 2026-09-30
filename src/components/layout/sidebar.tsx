@@ -19,6 +19,8 @@ interface NavItem {
   label: string
   icon: React.ReactNode
   adminOnly?: boolean
+  /** Módulo em desenvolvimento: visível a todos, mas só admins acessam de fato */
+  emBreveParaColaborador?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -26,7 +28,7 @@ const navItems: NavItem[] = [
   { href: '/analysis/new',     label: 'Nova Análise',         icon: <FilePlus        size={18} /> },
   { href: '/ai-chat',          label: 'Consultor IA',         icon: <Bot             size={18} /> },
   { href: '/audit',            label: 'Auditoria OEA',        icon: <ClipboardList   size={18} /> },
-  { href: '/perfil-operador',  label: 'Perfil Operador',      icon: <IdCard          size={18} /> },
+  { href: '/perfil-operador',  label: 'Perfil Operador',      icon: <IdCard          size={18} />, emBreveParaColaborador: true },
   { href: '/analysis/history', label: 'Histórico',            icon: <Clock           size={18} /> },
   { href: '/reference-docs',   label: 'Base de Conhecimento', icon: <BookOpen        size={18} /> },
   { href: '/admin',            label: 'Administração',        icon: <Settings        size={18} />, adminOnly: true },
@@ -97,6 +99,8 @@ export function Sidebar({ profile, onNavigate }: SidebarProps) {
       <nav className="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
         {visibleItems.map(item => {
           const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+          // Módulo em desenvolvimento: colaborador vê o item, mas com aviso de "Em breve"
+          const emBreve = item.emBreveParaColaborador && profile?.role !== 'admin'
           return (
             <Link
               key={item.href}
@@ -107,12 +111,21 @@ export function Sidebar({ profile, onNavigate }: SidebarProps) {
                 active
                   ? 'bg-white text-[#1B3A8C] shadow-sm'
                   : 'text-blue-100 hover:bg-white/10 hover:text-white',
-                collapsed && 'justify-center px-2'
+                collapsed && 'justify-center px-2',
+                emBreve && !active && 'opacity-60'
               )}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? (emBreve ? `${item.label} — em breve` : item.label) : undefined}
             >
               <span className="flex-shrink-0">{item.icon}</span>
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span className="flex-1">{item.label}</span>}
+              {!collapsed && emBreve && (
+                <span className={cn(
+                  'text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0',
+                  active ? 'bg-amber-100 text-amber-700' : 'bg-white/15 text-blue-100'
+                )}>
+                  Em breve
+                </span>
+              )}
             </Link>
           )
         })}

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PerfilOperadorItem } from '@/types/perfil-operador'
+import { isCurrentUserAdmin } from '@/lib/perfil-operador/is-admin'
 import { PrintActions } from './print-actions'
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,9 @@ export default async function PrintPerfilOperadorPage({ params }: Props) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) notFound()
+
+  // Módulo em desenvolvimento — liberado apenas para administradores
+  if (!(await isCurrentUserAdmin())) notFound()
 
   const { data: elaboration, error } = await supabase
     .from('perfil_operador_elaborations')
