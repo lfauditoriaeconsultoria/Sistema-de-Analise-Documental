@@ -26,6 +26,33 @@ function fmtSize(bytes: number | null): string {
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/* ── Tipos aceitos ───────────────────────────────────────────────────────────
+ * Precisa espelhar o allowed_mime_types do bucket perfil-operador-uploads
+ * (supabase/migration-perfil-operador.sql). Ao incluir um formato aqui, inclua
+ * também lá — senão o upload é recusado pelo Storage.
+ * ─────────────────────────────────────────────────────────────────────────── */
+const MIME_POR_EXTENSAO: Record<string, string> = {
+  pdf:  'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc:  'application/msword',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls:  'application/vnd.ms-excel',
+  png:  'image/png',
+  jpg:  'image/jpeg',
+  jpeg: 'image/jpeg',
+  txt:  'text/plain',
+  md:   'text/markdown',
+  csv:  'text/csv',
+}
+const ACCEPT_UPLOAD   = Object.keys(MIME_POR_EXTENSAO).map(e => `.${e}`).join(',')
+const MAX_UPLOAD_MB    = 20
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
+function mimePorExtensao(filename: string): string | null {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  return MIME_POR_EXTENSAO[ext] ?? null
+}
+
 function fmtTime(s: number): string {
   if (s < 60) return `${s}s`
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
@@ -229,11 +256,33 @@ function DocumentosTab({ elaboration, onReload }: { elaboration: PerfilOperadorE
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.user) throw new Error('Sessão expirada. Faça login novamente.')
 
+      // Valida tudo ANTES de enviar qualquer arquivo — erro claro na hora, em vez de
+      // uma falha genérica vinda do servidor no meio do lote.
+      for (const file of Array.from(files)) {
+        if (!mimePorExtensao(file.name)) {
+          throw new Error(
+            `"${file.name}" não é um formato aceito. Envie PDF, DOCX, DOC, XLSX, XLS, PNG, JPG, TXT, MD ou CSV.`
+          )
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            `"${file.name}" tem ${fmtSize(file.size)} e ultrapassa o limite de ${MAX_UPLOAD_MB} MB por arquivo.`
+          )
+        }
+      }
+
       for (const file of Array.from(files)) {
         const safeName    = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
         const storagePath = `${session.user.id}/${elaboration.id}/${crypto.randomUUID()}-${safeName}`
 
-        const { error: upErr } = await supabase.storage.from('perfil-operador-uploads').upload(storagePath, file)
+        // contentType SEMPRE derivado da extensão, nunca de file.type: o bucket só
+        // aceita uma lista fixa de tipos e o navegador frequentemente reporta
+        // 'application/octet-stream' (comum em DOCX/XLSX), que o Storage recusa com
+        // "mime type application/octet-stream is not supported". A extensão já foi
+        // validada contra MIME_POR_EXTENSAO no laço acima, então aqui é sempre válido.
+        const { error: upErr } = await supabase.storage
+          .from('perfil-operador-uploads')
+          .upload(storagePath, file, { contentType: mimePorExtensao(file.name)! })
         if (upErr) throw new Error(`Erro ao enviar "${file.name}": ${upErr.message}`)
 
         const res = await fetch('/api/perfil-operador/documents', {
@@ -339,16 +388,23 @@ function DocumentosTab({ elaboration, onReload }: { elaboration: PerfilOperadorE
                 ref={inputRefs[tipo]}
                 type="file"
                 multiple
+                accept={ACCEPT_UPLOAD}
                 className="hidden"
                 onChange={e => { if (e.target.files?.length) handleUpload(tipo, e.target.files); e.target.value = '' }}
               />
               {uploading === tipo ? (
-                <Loader2 size={20} className="mx-auto text-blue-500 animate-spin" />
+                <>
+                  <Loader2 size={20} className="mx-auto text-blue-500 animate-spin" />
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1.5">Enviando…</p>
+                </>
               ) : (
                 <>
                   <Upload size={20} className="mx-auto mb-1.5 text-gray-400" />
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     <span className="font-medium text-blue-600 dark:text-blue-400">Clique</span> ou arraste os arquivos
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    PDF, DOCX, XLSX, PNG, JPG, TXT, CSV · até {MAX_UPLOAD_MB} MB cada
                   </p>
                 </>
               )}
