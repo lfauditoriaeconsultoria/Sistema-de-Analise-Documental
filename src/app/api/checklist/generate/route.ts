@@ -11,6 +11,20 @@ const mammoth = require('mammoth') as typeof import('mammoth')
 
 export const maxDuration = 300
 
+/* ── Configuração do modelo de IA ────────────────────────────────────────────
+ * Extrair controles auditáveis exige julgamento (materialidade, mapeamento ao
+ * requisito correto, descarte de artefatos de extração), por isso usamos um
+ * modelo da linha Opus com raciocínio adaptativo ligado.
+ *
+ * Para ajustar o equilíbrio qualidade × custo × tempo, mexa só nestas duas:
+ *   • 'claude-opus-5-5'   — mais julgamento   (US$ 4 / 20 por M tokens)
+ *   • 'claude-sonnet-5-5' — mais rápido/barato (US$ 2 / 10 por M tokens)
+ * Efeito do esforço: 'low' | 'medium' | 'high' | 'xhigh' | 'max' — quanto maior,
+ * melhor o julgamento e maior o tempo de geração (atenção ao teto de 300 s).
+ * ─────────────────────────────────────────────────────────────────────────── */
+const CHECKLIST_MODEL  = 'claude-opus-5-5'
+const CHECKLIST_EFFORT = 'medium' as const
+
 function buildFilename(cliente: string): string {
   // Remove caracteres inválidos em nomes de arquivo (Windows/Mac/Linux)
   const safe = (s: string) => s.replace(/[/\\:*?"<>|]/g, '-').trim()
@@ -120,6 +134,48 @@ interface ChecklistItem {
   periodo:            string
   evidencia:          string
   metodologia:        string
+}
+
+/* ── Rede de segurança: descarta linhas que claramente não são controles ─────
+ * Última barreira contra os artefatos de extração (tabelas de revisão, blocos de
+ * identificação do documento, títulos de sumário) que o pdf-parse achata em
+ * linhas soltas e que, mesmo com as regras do prompt, podem escapar.
+ *
+ * Deliberadamente CONSERVADOR: na dúvida, mantém a linha. É preferível o auditor
+ * remover uma linha a mais do que perder um controle legítimo.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+// Verbos/expressões típicas de descrição de processo — se não houver nenhum,
+// o trecho provavelmente é um título, não um controle.
+const VERBO_DE_PROCESSO = /\b(é|são|deve|devem|dever[áã]o?|ser[áã]o?|est[áã]o?|possui|possuem|realiza[mr]?|realizad[oa]s?|efetua[mr]?|efetuad[oa]s?|mant[ée]m|registra[mr]?|registrad[oa]s?|verifica[mr]?|verificad[oa]s?|utiliza[mr]?|utilizad[oa]s?|aplica[mr]?|aplicad[oa]s?|executa[mr]?|executad[oa]s?|segue[mr]?|garante[mr]?|fica[mr]?|cabe|compete|respons[áa]vel|encaminha[mr]?|emite[mr]?|elabora[mr]?|aprova[mr]?|controla[mr]?|monitora[mr]?|inspeciona[mr]?|confere[mr]?|conferid[oa]s?|identifica[mr]?|comunica[mr]?|informa[mr]?|arquiva[mr]?|armazena[mr]?|treina[mr]?|capacita[mr]?|autoriza[mr]?|proíbe[mr]?|permitid[oa]s?|obrigat[óo]ri[oa]s?)\b/i
+
+function motivoDescarte(processoAuditado: string): string | null {
+  const t = (processoAuditado ?? '').trim()
+
+  if (t.length < 25) return 'trecho muito curto para descrever um controle'
+
+  // Bloco de identificação do documento: "Data revisão 06/11/2025 / Versão 3.0"
+  if (/^(data\s+(de\s+)?(revis|valid|emiss)|vers[ãa]o|c[óo]digo|p[áa]gina|elaborado\s+por|aprovado\s+por|revisado\s+por)\b/i.test(t)
+      && t.length < 200) {
+    return 'bloco de identificação/controle do documento'
+  }
+
+  // Linha de histórico de revisões: "Revisão 8 — 12/08/2025 — Todas — ..."
+  if (/^revis[ãa]o\s*n?[ºo°]?\s*\d+\s*[—\-–:|]/i.test(t)) {
+    return 'linha de histórico de revisões'
+  }
+
+  // Só metadados concatenados (data + validade + versão), sem texto de processo
+  if (/data\s+(de\s+)?(revis|valid)/i.test(t) && /vers[ãa]o/i.test(t) && !VERBO_DE_PROCESSO.test(t)) {
+    return 'metadados do documento sem descrição de processo'
+  }
+
+  // Título de seção: curto e sem nenhum verbo de processo
+  if (t.length < 120 && !VERBO_DE_PROCESSO.test(t)) {
+    return 'título/tema sem ação verificável'
+  }
+
+  return null
 }
 
 /* ── Preenche o template preservando formatação via ExcelJS ── */
@@ -563,10 +619,18 @@ a revisão final: se a remoção de uma linha não prejudicar a cobertura do req
 
           const msg = await callWithRetry(
             () => anthropicClient.messages.stream({
-              model:      'claude-sonnet-4-6',
+              model:      CHECKLIST_MODEL,
               // 16k tokens ≈ 120 itens — equilibra completude e tempo de geração.
               // A 80 tok/s por chamada: 16k/80 = 200s por doc; em paralelo wall time = max ≈ 200s.
               max_tokens: 16_000,
+              // Raciocínio ativado: decidir se um trecho é material e a qual requisito
+              // pertence é julgamento, não transcrição. Sem isso o modelo respondia
+              // "de primeira" e trazia títulos, cabeçalhos e requisitos trocados.
+              thinking: { type: 'adaptive' },
+              // 'medium' é o padrão do Opus 5.5 e mantém o tempo sob controle (limite de
+              // 300 s do Vercel). Subir para 'high'/'xhigh' melhora o julgamento ao custo
+              // de mais tempo e tokens de raciocínio — avaliar depois de medir.
+              output_config: { effort: CHECKLIST_EFFORT },
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
               messages: [{ role: 'user', content }],
@@ -638,8 +702,24 @@ a revisão final: se a remoção de uma linha não prejudicar a cobertura do req
       }
       console.log(`[SSE][${T()}] total items:`, allItems.length, `| api errors:`, apiErrors.length)
 
+      // Rede de segurança: remove artefatos de extração que escaparam das regras do prompt.
+      // Mantém ao menos 1 linha mesmo que todas sejam suspeitas — melhor entregar algo
+      // revisável do que uma planilha vazia sem explicação.
+      const aprovados: ChecklistItem[] = []
+      const descartados: string[] = []
+      for (const it of allItems) {
+        const motivo = motivoDescarte(it.processo_auditado)
+        if (motivo) descartados.push(`[${it.requisito}] ${motivo}: "${(it.processo_auditado ?? '').slice(0, 70)}"`)
+        else aprovados.push(it)
+      }
+      if (descartados.length) {
+        console.warn(`[SSE][${T()}] ${descartados.length} linha(s) descartada(s) pelo filtro:`)
+        descartados.forEach(d => console.warn(`  · ${d}`))
+      }
+      const filtrados = aprovados.length ? aprovados : allItems
+
       send({ type: 'progress', message: 'Gerando planilha...' })
-      const items        = allItems.map((it, i) => ({ ...it, id: i + 1 }))
+      const items        = filtrados.map((it, i) => ({ ...it, id: i + 1 }))
       const templateBuf  = loadTemplate()
       const xlsxBytes    = await fillTemplate(templateBuf, items)
       const filenameXlsx = `${buildFilename(cliente)}.xlsx`

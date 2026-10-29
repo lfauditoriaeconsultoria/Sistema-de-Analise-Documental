@@ -185,6 +185,83 @@ Não criar linhas para:
 
 ---
 
+## COMO O TEXTO CHEGA ATÉ VOCÊ — ARTEFATOS DE EXTRAÇÃO
+
+O conteúdo dos documentos é extraído automaticamente de PDF/DOCX e chega SEM
+formatação. Tabelas, cabeçalhos, rodapés, sumários e caixas de controle são
+ACHATADOS em linhas soltas de texto, visualmente idênticas a um parágrafo comum.
+
+Você precisa reconhecer e DESCARTAR esses artefatos. Eles nunca são controles
+auditáveis, mesmo quando parecem conteúdo:
+
+### Tabela de identificação/controle do documento
+Linhas soltas com metadados do próprio arquivo:
+- "Data revisão 06/11/2025" / "Data de validade 06/11/2026" / "Versão 3.0"
+- "Código: POP-XX-001" / "Página 3 de 12" / "Elaborado por: ... Aprovado por: ..."
+Descartar sempre.
+
+### Tabela de histórico de revisões
+Linhas que combinam número de revisão + data + páginas afetadas + descrição da
+alteração, frequentemente concatenadas numa linha só:
+- "Revisão 8 — 12/08/2025 — Todas — Inclusão no item 2: IN RFB Nº 2154/2023..."
+- "Revisão 6 — 25/07/2025 — Todas as páginas."
+Descartar sempre. Exceção única: quando o requisito OEA exigir revisão periódica
+do documento — e, mesmo aí, o controle é a ROTINA de revisão descrita no corpo do
+procedimento, nunca a linha do histórico.
+
+### Sumário / índice
+Sequência de títulos curtos, um atrás do outro, sem corpo de texto entre eles:
+- "Inspeção do 7 (sete) e 17 (dezessete) pontos."
+- "Controle de pragas." / "CONTROLE DE PRAGAS EM PALETES DE MADEIRA"
+Descartar. Um título isolado não descreve controle nenhum.
+
+### Cabeçalho e rodapé repetidos
+Texto que reaparece a cada página (razão social, código do documento, data de
+emissão, numeração). Descartar.
+
+### TESTE DECISIVO ANTES DE PREENCHER A COLUNA M
+
+Pergunte-se: **"Esta frase, sozinha, diz O QUE é feito, POR QUEM ou QUANDO?"**
+
+Se for apenas um título, um nome de tema, uma data, um número de versão ou uma
+linha de tabela de controle, NÃO É CONTROLE AUDITÁVEL — descarte e não gere linha.
+
+Um controle auditável sempre contém ação verificável. Compare:
+
+✗ "Controle de pragas."
+   → título de seção. Não diz o que é feito, por quem, nem quando. DESCARTAR.
+
+✓ "As inspeções para detecção de pragas visíveis são realizadas antes do
+   carregamento, com registro em checklist assinado pelo conferente."
+   → descreve ação, momento e responsável. EXTRAIR.
+
+✗ "Revisão 8 — 12/08/2025 — Todas — Revisão Geral do Documento."
+   → linha de histórico de revisão. DESCARTAR.
+
+✗ "Definir os procedimentos para padronizar as diretrizes e controle da
+   mercadoria no processo de exportação."
+   → é o OBJETIVO do documento, não um controle executado. DESCARTAR.
+
+Se, ao procurar conteúdo para um requisito, você só encontrar títulos ou
+artefatos como os acima, trate o requisito como SEM processo correspondente e
+siga a regra do caso especial 2 — nunca preencha a coluna M com o título.
+
+## CONFERÊNCIA DE PERTINÊNCIA REQUISITO ↔ TRECHO
+
+Antes de gravar a linha, releia o texto oficial do requisito selecionado e o
+trecho que você colocou na coluna M, e pergunte:
+
+**"Este trecho trata exatamente do que o requisito exige, ou apenas do mesmo
+assunto geral?"**
+
+Tratar do mesmo tema NÃO basta. Exemplo real de erro a evitar: o requisito 4.5
+trata de ARQUIVAMENTO de registros; um trecho que descreve QUAIS INFORMAÇÕES
+devem constar no B/L e na Invoice fala de documentos de comércio exterior, mas
+não fala de arquivamento — não atende ao 4.5.
+
+Se o trecho não trata do objeto específico do requisito, procure outro trecho ou
+mapeie-o ao requisito correto. Não force a correspondência.
+
 ## Regra de granularidade — uma linha = um controle materialmente distinto
 
 Criar uma linha por CONTROLE MATERIALMENTE DISTINTO, e não por frase, etapa ou subitem.
