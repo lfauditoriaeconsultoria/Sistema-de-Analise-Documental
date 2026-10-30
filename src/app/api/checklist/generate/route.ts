@@ -13,16 +13,22 @@ export const maxDuration = 300
 
 /* ── Configuração do modelo de IA ────────────────────────────────────────────
  * Extrair controles auditáveis exige julgamento (materialidade, mapeamento ao
- * requisito correto, descarte de artefatos de extração), por isso usamos um
- * modelo da linha Opus com raciocínio adaptativo ligado.
+ * requisito correto, descarte de artefatos de extração), por isso o raciocínio
+ * adaptativo fica ligado na chamada.
  *
- * Para ajustar o equilíbrio qualidade × custo × tempo, mexa só nestas duas:
- *   • 'claude-opus-5-5'   — mais julgamento   (US$ 4 / 20 por M tokens)
- *   • 'claude-sonnet-5-5' — mais rápido/barato (US$ 2 / 10 por M tokens)
- * Efeito do esforço: 'low' | 'medium' | 'high' | 'xhigh' | 'max' — quanto maior,
- * melhor o julgamento e maior o tempo de geração (atenção ao teto de 300 s).
+ * Custo medido por documento de ~30 mil caracteres (chamadas reais à API):
+ *   • claude-sonnet-4-6 sem raciocínio  US$ 0,157  — configuração anterior
+ *   • claude-sonnet-5-5 com raciocínio  US$ 0,140  — ATUAL (11% mais barato)
+ *   • claude-opus-5-5  com raciocínio   US$ 0,468  — 3× o custo anterior
+ * O raciocínio é cobrado como tokens de saída, e é dele que vem quase todo o
+ * aumento — não da diferença de preço entre os modelos.
+ *
+ * Se a revisão apontar que o julgamento ainda falha, as alavancas são, nesta
+ * ordem de custo: subir CHECKLIST_EFFORT ('high', 'xhigh') ou trocar o modelo
+ * para 'claude-opus-5-5'. Esforço maior também aumenta o tempo de geração —
+ * atenção ao teto de 300 s do Vercel.
  * ─────────────────────────────────────────────────────────────────────────── */
-const CHECKLIST_MODEL  = 'claude-opus-5-5'
+const CHECKLIST_MODEL  = 'claude-sonnet-5-5'
 const CHECKLIST_EFFORT = 'medium' as const
 
 function buildFilename(cliente: string): string {
